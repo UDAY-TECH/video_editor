@@ -40,7 +40,9 @@ export interface Track {
 
 export interface Clip {
   id: string;
-  mediaAssetId: string;
+  // Absent for text clips (see `text` below) — a clip must have exactly one
+  // of mediaAssetId or text.
+  mediaAssetId?: string;
   trackId: string;
   startTime: number;
   duration: number;
@@ -52,6 +54,21 @@ export interface Clip {
   keyframes: Record<string, Keyframe[]>;
   transitionIn?: Transition;
   transitionOut?: Transition;
+  // Present only for text clips. Text clips have no backing MediaAsset —
+  // they're generated content placed directly on a video track — but still
+  // use the ordinary startTime/duration/sourceIn/sourceOut/transform/
+  // keyframes fields above like any other clip.
+  text?: TextClipContent;
+}
+
+export interface TextClipContent {
+  content: string;
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  align: 'left' | 'center' | 'right';
+  entranceAnimation: 'none' | 'fade' | 'slide';
+  exitAnimation: 'none' | 'fade' | 'slide';
 }
 
 export interface Transform {

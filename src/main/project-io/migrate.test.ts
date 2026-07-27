@@ -91,4 +91,104 @@ describe('migrateProjectFile', () => {
     project.mediaAssets = [{ id: 'a1' }];
     expect(() => migrateProjectFile(project)).toThrow(/mediaAssets\[0\]/);
   });
+
+  it('migrates a 1.0.0 project file forward to the current version', () => {
+    const project = { ...validProject(), version: '1.0.0' };
+    const result = migrateProjectFile(project);
+    expect(result.version).toBe(CURRENT_PROJECT_VERSION);
+  });
+
+  it('accepts a text clip that has no mediaAssetId', () => {
+    const project = validProject();
+    project.tracks = [
+      {
+        id: 't1',
+        type: 'video',
+        index: 0,
+        muted: false,
+        locked: false,
+        clips: [
+          {
+            id: 'c1',
+            trackId: 't1',
+            startTime: 0,
+            duration: 5,
+            sourceIn: 0,
+            sourceOut: 5,
+            speed: 1,
+            transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
+            effects: [],
+            keyframes: {},
+            text: {
+              content: 'Hello',
+              fontFamily: 'Arial',
+              fontSize: 48,
+              color: '#ffffff',
+              align: 'center',
+              entranceAnimation: 'none',
+              exitAnimation: 'none',
+            },
+          },
+        ],
+      },
+    ];
+    expect(() => migrateProjectFile(project)).not.toThrow();
+  });
+
+  it('rejects a clip with neither mediaAssetId nor text', () => {
+    const project = validProject();
+    project.tracks = [
+      {
+        id: 't1',
+        type: 'video',
+        index: 0,
+        muted: false,
+        locked: false,
+        clips: [
+          {
+            id: 'c1',
+            trackId: 't1',
+            startTime: 0,
+            duration: 5,
+            sourceIn: 0,
+            sourceOut: 5,
+            speed: 1,
+            transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
+            effects: [],
+            keyframes: {},
+          },
+        ],
+      },
+    ];
+    expect(() => migrateProjectFile(project)).toThrow(/mediaAssetId.*text/);
+  });
+
+  it('rejects a text clip with a malformed text object', () => {
+    const project = validProject();
+    project.tracks = [
+      {
+        id: 't1',
+        type: 'video',
+        index: 0,
+        muted: false,
+        locked: false,
+        clips: [
+          {
+            id: 'c1',
+            trackId: 't1',
+            startTime: 0,
+            duration: 5,
+            sourceIn: 0,
+            sourceOut: 5,
+            speed: 1,
+            transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
+            effects: [],
+            keyframes: {},
+            text: { content: 'Hello' },
+          },
+        ],
+      },
+    ];
+    expect(() => migrateProjectFile(project)).toThrow(/text\.fontFamily/);
+  });
 });

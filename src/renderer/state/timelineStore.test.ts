@@ -346,3 +346,78 @@ describe('setKeyframe / removeKeyframe / clearKeyframesForProperty', () => {
     expect(firstClip()!.transform.opacity).toBe(1);
   });
 });
+
+describe('addTextClip / updateTextContent', () => {
+  it('adds a text clip with default content and is undoable', () => {
+    const ok = useTimelineStore.getState().addTextClip('v1', 0);
+    expect(ok).toBe(true);
+    const clip = firstClip()!;
+    expect(clip.mediaAssetId).toBeUndefined();
+    expect(clip.text?.content).toBe('Text');
+    expect(clip.text?.fontFamily).toBe('Arial');
+
+    useTimelineStore.getState().undo();
+    expect(trackClips('v1')).toHaveLength(0);
+  });
+
+  it('accepts a partial content override', () => {
+    useTimelineStore.getState().addTextClip('v1', 0, { content: 'Hello', fontSize: 96 });
+    const clip = firstClip()!;
+    expect(clip.text?.content).toBe('Hello');
+    expect(clip.text?.fontSize).toBe(96);
+    expect(clip.text?.fontFamily).toBe('Arial'); // unspecified fields keep the default
+  });
+
+  it('rejects placement on an audio track', () => {
+    const ok = useTimelineStore.getState().addTextClip('a1', 0);
+    expect(ok).toBe(false);
+  });
+
+  it('rejects placement on a locked track', () => {
+    useTimelineStore.getState().toggleTrackLock('v1');
+    const ok = useTimelineStore.getState().addTextClip('v1', 0);
+    expect(ok).toBe(false);
+  });
+
+  it('rejects overlapping an existing clip', () => {
+    useTimelineStore.getState().addTextClip('v1', 0);
+    const ok = useTimelineStore.getState().addTextClip('v1', 2);
+    expect(ok).toBe(false);
+  });
+
+  it('updateTextContent patches the text and is undoable', () => {
+    useTimelineStore.getState().addTextClip('v1', 0);
+    const clipId = firstClip()!.id;
+
+    useTimelineStore.getState().updateTextContent(clipId, { content: 'Updated', color: '#ff0000' });
+    expect(firstClip()!.text?.content).toBe('Updated');
+    expect(firstClip()!.text?.color).toBe('#ff0000');
+
+    useTimelineStore.getState().undo();
+    expect(firstClip()!.text?.content).toBe('Text');
+  });
+
+  it('is a no-op on a locked track', () => {
+    useTimelineStore.getState().addTextClip('v1', 0);
+    const clipId = firstClip()!.id;
+    useTimelineStore.getState().toggleTrackLock('v1');
+
+    useTimelineStore.getState().updateTextContent(clipId, { content: 'Nope' });
+    expect(firstClip()!.text?.content).toBe('Text');
+  });
+
+  it('works with the generic move/trim/split/remove actions like any other clip', () => {
+    useTimelineStore.getState().addTextClip('v1', 0);
+    const clipId = firstClip()!.id;
+
+    expect(useTimelineStore.getState().moveClip(clipId, 'v1', 3)).toBe(true);
+    expect(firstClip()!.startTime).toBe(3);
+
+    expect(useTimelineStore.getState().splitClipAt(clipId, 5)).toBe(true);
+    expect(trackClips('v1')).toHaveLength(2);
+    // Both halves are still valid text clips.
+    for (const clip of trackClips('v1')) {
+      expect(clip.text?.content).toBe('Text');
+    }
+  });
+});

@@ -71,6 +71,7 @@ export function Timeline(): JSX.Element {
   const toggleSnapping = useTimelineStore((s) => s.toggleSnapping);
   const addTrack = useTimelineStore((s) => s.addTrack);
   const addClip = useTimelineStore((s) => s.addClip);
+  const addTextClip = useTimelineStore((s) => s.addTextClip);
   const moveClip = useTimelineStore((s) => s.moveClip);
   const trimClipStart = useTimelineStore((s) => s.trimClipStart);
   const trimClipEnd = useTimelineStore((s) => s.trimClipEnd);
@@ -100,6 +101,7 @@ export function Timeline(): JSX.Element {
   selectedClipIdRef.current = selectedClipId;
 
   function labelForClip(clip: Clip): string {
+    if (clip.text) return clip.text.content || 'Text';
     const asset = assets.find((a) => a.id === clip.mediaAssetId);
     return asset ? (asset.filePath.split(/[\\/]/).pop() ?? 'Clip') : 'Clip';
   }
@@ -328,6 +330,22 @@ export function Timeline(): JSX.Element {
         </button>
         <button className="px-2 py-0.5 rounded hover:bg-neutral-800" onClick={() => addTrack('audio')}>
           +Audio
+        </button>
+        <button
+          className="px-2 py-0.5 rounded hover:bg-neutral-800"
+          title="Add a text clip at the playhead, on the topmost video track"
+          onClick={() => {
+            // Highest `index` renders last / on top in the compositor
+            // (see computeCompositeFrame's sort) - match that here rather
+            // than relying on array position, which isn't guaranteed to
+            // agree with index for a loaded/hand-edited project file.
+            const topTrack = tracks
+              .filter((t) => t.type === 'video')
+              .sort((a, b) => b.index - a.index)[0];
+            if (topTrack) addTextClip(topTrack.id, playheadTime);
+          }}
+        >
+          +Text
         </button>
         <div className="ml-auto flex items-center gap-1">
           <span className="text-neutral-500">Zoom</span>

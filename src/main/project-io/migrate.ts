@@ -1,6 +1,7 @@
 import type { ProjectFile } from '../../shared/types';
+import { CURRENT_PROJECT_VERSION } from '../../shared/schemaVersion';
 
-export const CURRENT_PROJECT_VERSION = '1.0.0';
+export { CURRENT_PROJECT_VERSION };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -34,11 +35,21 @@ function validateMediaAsset(value: unknown, index: number): void {
   requireNumber(asset.duration, `mediaAssets[${index}].duration`);
 }
 
+function validateTextContent(value: unknown, prefix: string): void {
+  const text = requireObject(value, `${prefix}.text`);
+  requireString(text.content, `${prefix}.text.content`);
+  requireString(text.fontFamily, `${prefix}.text.fontFamily`);
+  requireNumber(text.fontSize, `${prefix}.text.fontSize`);
+  requireString(text.color, `${prefix}.text.color`);
+  requireString(text.align, `${prefix}.text.align`);
+  requireString(text.entranceAnimation, `${prefix}.text.entranceAnimation`);
+  requireString(text.exitAnimation, `${prefix}.text.exitAnimation`);
+}
+
 function validateClip(value: unknown, trackIndex: number, clipIndex: number): void {
   const prefix = `tracks[${trackIndex}].clips[${clipIndex}]`;
   const clip = requireObject(value, prefix);
   requireString(clip.id, `${prefix}.id`);
-  requireString(clip.mediaAssetId, `${prefix}.mediaAssetId`);
   requireString(clip.trackId, `${prefix}.trackId`);
   requireNumber(clip.startTime, `${prefix}.startTime`);
   requireNumber(clip.duration, `${prefix}.duration`);
@@ -47,6 +58,13 @@ function validateClip(value: unknown, trackIndex: number, clipIndex: number): vo
   requireObject(clip.transform, `${prefix}.transform`);
   requireArray(clip.effects, `${prefix}.effects`);
   requireObject(clip.keyframes, `${prefix}.keyframes`);
+
+  const hasMediaAssetId = typeof clip.mediaAssetId === 'string';
+  const hasText = clip.text !== undefined;
+  if (!hasMediaAssetId && !hasText) {
+    throw new Error(`Invalid project file: "${prefix}" must have either "mediaAssetId" or "text"`);
+  }
+  if (hasText) validateTextContent(clip.text, prefix);
 }
 
 function validateTrack(value: unknown, index: number): void {
@@ -85,8 +103,19 @@ function validateProjectShape(raw: Record<string, unknown>): ProjectFile {
 // (Section 3 of the spec) changes, transforming `raw` up to the current shape
 // before it reaches validateProjectShape.
 function migrateToCurrentVersion(raw: Record<string, unknown>): Record<string, unknown> {
-  const version = raw.version;
-  if (version === CURRENT_PROJECT_VERSION) return raw;
+  let version = raw.version;
+  let migrated = raw;
+
+  if (version === '1.0.0') {
+    // 1.0.0 -> 1.1.0: added optional Clip.text for text clips; mediaAssetId
+    // became conditionally required (present unless the clip is a text
+    // clip). No data transformation needed - every 1.0.0 clip already has a
+    // valid mediaAssetId, which remains valid under the new schema.
+    migrated = { ...migrated, version: '1.1.0' };
+    version = '1.1.0';
+  }
+
+  if (version === CURRENT_PROJECT_VERSION) return migrated;
   throw new Error(`Invalid project file: unsupported version "${String(version)}"`);
 }
 

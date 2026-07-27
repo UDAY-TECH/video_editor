@@ -7,6 +7,8 @@ import { computeCompositeFrame, type CompositorLayer } from '../../engine/compos
 import { getTimelineEnd } from '../../engine/timelineMath';
 import type { MediaAsset } from '@shared/types';
 
+const TEXT_ANIM_DURATION = 0.5;
+
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds)) return '00:00';
   const m = Math.floor(seconds / 60);
@@ -121,12 +123,18 @@ export function PreviewPlayer(): JSX.Element {
     return { width: mediaEl.naturalWidth, height: mediaEl.naturalHeight };
   }
 
-  function drawLayer(
+  // Shared setup for every layer: wipe clip-path, combined alpha (transition
+  // alpha * the clip's own opacity * any extra caller-supplied alpha, e.g.
+  // a text entrance/exit fade), and the position/rotation/scale transform
+  // centered on the frame. Callers draw their content after this and must
+  // call ctx.restore() themselves to balance the ctx.save() here.
+  function applyLayerTransform(
     ctx: CanvasRenderingContext2D,
-    mediaEl: HTMLVideoElement | HTMLImageElement,
     layer: CompositorLayer,
     width: number,
     height: number,
+    extraAlpha: number,
+    extraOffsetX: number,
   ): void {
     ctx.save();
     if (layer.wipe) {
@@ -136,8 +144,22 @@ export function PreviewPlayer(): JSX.Element {
       else ctx.rect(revealWidth, 0, width - revealWidth, height);
       ctx.clip();
     }
-    ctx.globalAlpha = layer.alpha * layer.transform.opacity;
+    ctx.globalAlpha = layer.alpha * layer.transform.opacity * extraAlpha;
 
+    const cx = width / 2 + layer.transform.x + extraOffsetX;
+    const cy = height / 2 + layer.transform.y;
+    ctx.translate(cx, cy);
+    ctx.rotate((layer.transform.rotation * Math.PI) / 180);
+    ctx.scale(layer.transform.scale, layer.transform.scale);
+  }
+
+  function drawLayer(
+    ctx: CanvasRenderingContext2D,
+    mediaEl: HTMLVideoElement | HTMLImageElement,
+    layer: CompositorLayer,
+    width: number,
+    height: number,
+  ): void {
     // Fit (not stretch) the source into the frame, preserving its own aspect
     // ratio - falls back to filling the frame if natural size isn't known yet.
     const natural = getNaturalSize(mediaEl);
@@ -145,12 +167,49 @@ export function PreviewPlayer(): JSX.Element {
     const drawWidth = natural ? natural.width * fitScale : width;
     const drawHeight = natural ? natural.height * fitScale : height;
 
-    const cx = width / 2 + layer.transform.x;
-    const cy = height / 2 + layer.transform.y;
-    ctx.translate(cx, cy);
-    ctx.rotate((layer.transform.rotation * Math.PI) / 180);
-    ctx.scale(layer.transform.scale, layer.transform.scale);
+    applyLayerTransform(ctx, layer, width, height, 1, 0);
     ctx.drawImage(mediaEl, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+    ctx.restore();
+  }
+
+  function drawTextLayer(
+    ctx: CanvasRenderingContext2D,
+    layer: CompositorLayer,
+    width: number,
+    height: number,
+  ): void {
+    const text = layer.clip.text;
+    if (!text) return;
+
+    // Cap each animation window to at most half the clip's duration so
+    // entrance and exit never overlap on a very short clip (which would
+    // otherwise compound alpha/offset from both at once).
+    const effectiveAnimDuration =
+      layer.clip.duration > 0 ? Math.min(TEXT_ANIM_DURATION, layer.clip.duration / 2) : 0;
+    const remaining = layer.clip.duration - layer.localTime;
+
+    let animAlpha = 1;
+    let slideOffsetX = 0;
+    if (effectiveAnimDuration > 0) {
+      if (text.entranceAnimation === 'fade' && layer.localTime < effectiveAnimDuration) {
+        animAlpha = Math.min(animAlpha, layer.localTime / effectiveAnimDuration);
+      } else if (text.exitAnimation === 'fade' && remaining < effectiveAnimDuration) {
+        animAlpha = Math.min(animAlpha, Math.max(0, remaining / effectiveAnimDuration));
+      }
+
+      if (text.entranceAnimation === 'slide' && layer.localTime < effectiveAnimDuration) {
+        slideOffsetX = (1 - layer.localTime / effectiveAnimDuration) * -width * 0.3;
+      } else if (text.exitAnimation === 'slide' && remaining < effectiveAnimDuration) {
+        slideOffsetX = (1 - remaining / effectiveAnimDuration) * width * 0.3;
+      }
+    }
+
+    applyLayerTransform(ctx, layer, width, height, animAlpha, slideOffsetX);
+    ctx.font = `${text.fontSize}px ${text.fontFamily}`;
+    ctx.fillStyle = text.color;
+    ctx.textAlign = text.align;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text.content, 0, 0);
     ctx.restore();
   }
 
@@ -173,6 +232,11 @@ export function PreviewPlayer(): JSX.Element {
 
     const layers = computeCompositeFrame(tracksRef.current, time);
     for (const layer of layers) {
+      if (layer.clip.text) {
+        drawTextLayer(ctx, layer, width, height);
+        continue;
+      }
+      if (!layer.clip.mediaAssetId) continue;
       const asset = findAsset(layer.clip.mediaAssetId);
       if (!asset) continue;
 

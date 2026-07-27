@@ -162,6 +162,36 @@ describe('computeTrackFrame', () => {
     const layers = computeTrackFrame(track, 5);
     expect(layers[0].transform.opacity).toBeCloseTo(0.5);
   });
+
+  it('exposes localTime on the returned layer', () => {
+    const track = makeTrack([makeClip({ startTime: 2, duration: 10 })]);
+    const layers = computeTrackFrame(track, 5);
+    expect(layers[0].localTime).toBe(3);
+  });
+
+  it('produces a valid layer for a text clip with no mediaAssetId', () => {
+    const textClip = makeClip({
+      mediaAssetId: undefined,
+      startTime: 0,
+      duration: 5,
+      text: {
+        content: 'Hello',
+        fontFamily: 'Arial',
+        fontSize: 48,
+        color: '#ffffff',
+        align: 'center',
+        entranceAnimation: 'none',
+        exitAnimation: 'none',
+      },
+    });
+    const track = makeTrack([textClip]);
+    const layers = computeTrackFrame(track, 2);
+    expect(layers).toHaveLength(1);
+    expect(layers[0].clip.mediaAssetId).toBeUndefined();
+    expect(layers[0].clip.text?.content).toBe('Hello');
+    expect(layers[0].localTime).toBe(2);
+    expect(layers[0].alpha).toBe(1);
+  });
 });
 
 describe('computeCompositeFrame', () => {

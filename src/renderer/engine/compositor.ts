@@ -5,6 +5,12 @@ import { sortedClips } from './timelineMath';
 export interface CompositorLayer {
   clip: Clip;
   track: Track;
+  // Time relative to this clip's own start used to render this layer (equal
+  // to the live playhead-relative time for the active clip, but frozen at a
+  // clip's boundary - 0 or its duration - for the static partner during a
+  // transition). Used both to derive sourceTime below and, for text clips
+  // (which have no source media to seek), directly for animation timing.
+  localTime: number;
   sourceTime: number;
   transform: Transform;
   alpha: number;
@@ -33,6 +39,7 @@ function buildLayer(
   return {
     clip,
     track,
+    localTime,
     sourceTime: clipSourceTime(clip, localTime),
     transform: resolveTransformAtTime(clip.transform, clip.keyframes, localTime),
     alpha,

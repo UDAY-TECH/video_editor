@@ -1,11 +1,21 @@
 import { create } from 'zustand';
-import type { Clip, Keyframe, MediaAsset, Track, Transform } from '@shared/types';
+import type { Clip, Keyframe, MediaAsset, Track, TextClipContent, Transform } from '@shared/types';
 import { hasOverlap } from '../engine/timelineMath';
 
 const KEYFRAME_TIME_EPSILON = 1e-6;
 
 const DEFAULT_ZOOM = 50;
 const DEFAULT_IMAGE_DURATION = 5;
+const DEFAULT_TEXT_DURATION = 5;
+const DEFAULT_TEXT_CONTENT: TextClipContent = {
+  content: 'Text',
+  fontFamily: 'Arial',
+  fontSize: 48,
+  color: '#ffffff',
+  align: 'center',
+  entranceAnimation: 'none',
+  exitAnimation: 'none',
+};
 const ZOOM_STORAGE_KEY = 'videoEditor.timeline.zoom';
 const SNAP_STORAGE_KEY = 'videoEditor.timeline.snapping';
 
@@ -87,6 +97,8 @@ interface TimelineState {
   loadTracks: (tracks: Track[]) => void;
   addTrack: (type: 'video' | 'audio') => void;
   addClip: (trackId: string, asset: MediaAsset, startTime: number) => boolean;
+  addTextClip: (trackId: string, startTime: number, content?: Partial<TextClipContent>) => boolean;
+  updateTextContent: (clipId: string, patch: Partial<TextClipContent>) => void;
   moveClip: (clipId: string, trackId: string, startTime: number) => boolean;
   trimClipStart: (clipId: string, newStartTime: number) => boolean;
   trimClipEnd: (clipId: string, newEndTime: number, maxSourceOut?: number) => boolean;
@@ -185,6 +197,46 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         undo: () => set((state) => ({ tracks: removeClipFromTracks(state.tracks, clip.id) })),
       });
       return true;
+    },
+
+    addTextClip: (trackId, startTime, content) => {
+      const track = get().tracks.find((t) => t.id === trackId);
+      if (!track || track.locked || track.type !== 'video') return false;
+      const duration = DEFAULT_TEXT_DURATION;
+      const clampedStart = Math.max(0, startTime);
+      if (hasOverlap(track, null, clampedStart, duration)) return false;
+
+      const clip: Clip = {
+        id: crypto.randomUUID(),
+        trackId,
+        startTime: clampedStart,
+        duration,
+        sourceIn: 0,
+        sourceOut: duration,
+        speed: 1,
+        transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
+        effects: [],
+        keyframes: {},
+        text: { ...DEFAULT_TEXT_CONTENT, ...content },
+      };
+      runCommand({
+        do: () => set((state) => ({ tracks: insertClip(state.tracks, clip) })),
+        undo: () => set((state) => ({ tracks: removeClipFromTracks(state.tracks, clip.id) })),
+      });
+      return true;
+    },
+
+    updateTextContent: (clipId, patch) => {
+      const found = findClip(get().tracks, clipId);
+      if (!found || found.track.locked || !found.clip.text) return;
+      const prevText = found.clip.text;
+      const nextText = { ...prevText, ...patch };
+      runCommand({
+        do: () =>
+          set((state) => ({ tracks: replaceClip(state.tracks, clipId, (c) => ({ ...c, text: nextText })) })),
+        undo: () =>
+          set((state) => ({ tracks: replaceClip(state.tracks, clipId, (c) => ({ ...c, text: prevText })) })),
+      });
     },
 
     moveClip: (clipId, newTrackId, newStartTime) => {

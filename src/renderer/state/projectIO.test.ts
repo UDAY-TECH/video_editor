@@ -10,6 +10,7 @@ import {
   loadProject,
   initDirtyTracking,
 } from './projectIO';
+import { CURRENT_PROJECT_VERSION } from '@shared/schemaVersion';
 import type { MediaAsset, ProjectFile } from '@shared/types';
 
 const asset: MediaAsset = {
@@ -25,6 +26,10 @@ beforeEach(() => {
 });
 
 describe('buildProjectFile / applyProjectFile', () => {
+  it('writes the current schema version, not a stale hardcoded one', () => {
+    expect(buildProjectFile().version).toBe(CURRENT_PROJECT_VERSION);
+  });
+
   it('round-trips media assets and tracks through build/apply', () => {
     useMediaBinStore.getState().addAssets([asset]);
     useTimelineStore.getState().addClip(useTimelineStore.getState().tracks[0].id, asset, 0);

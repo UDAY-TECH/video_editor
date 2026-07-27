@@ -1,14 +1,13 @@
 import { useProjectStore } from './projectStore';
 import { useMediaBinStore } from './mediaBinStore';
 import { useTimelineStore, createDefaultTracks } from './timelineStore';
+import { CURRENT_PROJECT_VERSION } from '@shared/schemaVersion';
 import type { MediaAsset, ProjectFile } from '@shared/types';
-
-const SCHEMA_VERSION = '1.0.0';
 
 export function buildProjectFile(): ProjectFile {
   const project = useProjectStore.getState();
   return {
-    version: SCHEMA_VERSION,
+    version: CURRENT_PROJECT_VERSION,
     id: project.id,
     name: project.name,
     createdAt: project.createdAt,

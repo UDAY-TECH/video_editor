@@ -33,6 +33,7 @@ export function ClipBlock({
   const displayDuration = previewDuration ?? clip.duration;
   const left = timeToPx(displayStart, zoom);
   const width = Math.max(MIN_WIDTH_PX, timeToPx(displayDuration, zoom));
+  const isText = Boolean(clip.text);
 
   function handleMouseDown(e: React.MouseEvent<HTMLDivElement>): void {
     e.stopPropagation();
@@ -50,13 +51,27 @@ export function ClipBlock({
 
   return (
     <div
-      className={`absolute top-1 bottom-1 rounded border overflow-hidden select-none cursor-grab bg-blue-900/70 ${
-        selected ? 'border-blue-400 ring-1 ring-blue-400' : 'border-blue-800'
+      className={`absolute top-1 bottom-1 rounded border overflow-hidden select-none cursor-grab ${
+        isText ? 'bg-purple-900/70' : 'bg-blue-900/70'
+      } ${
+        selected
+          ? isText
+            ? 'border-purple-400 ring-1 ring-purple-400'
+            : 'border-blue-400 ring-1 ring-blue-400'
+          : isText
+            ? 'border-purple-800'
+            : 'border-blue-800'
       }`}
       style={{ left, width }}
       onMouseDown={handleMouseDown}
     >
-      <div className="px-1.5 py-0.5 text-[10px] truncate text-blue-100 pointer-events-none">{label}</div>
+      <div
+        className={`px-1.5 py-0.5 text-[10px] truncate pointer-events-none ${
+          isText ? 'text-purple-100' : 'text-blue-100'
+        }`}
+      >
+        {label}
+      </div>
       <div className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize" />
       <div className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize" />
     </div>
