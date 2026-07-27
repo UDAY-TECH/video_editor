@@ -1,7 +1,6 @@
-import { app, BrowserWindow, shell, protocol, net } from 'electron';
+import { app, BrowserWindow, shell, protocol } from 'electron';
 import { join } from 'path';
-import { pathToFileURL } from 'url';
-import { fromMediaUrl } from '../shared/mediaUrl';
+import { handleMediaRequest } from './mediaProtocol';
 import { registerMediaIpc } from './ipc/media';
 
 protocol.registerSchemesAsPrivileged([
@@ -51,10 +50,7 @@ function createMainWindow(): void {
 }
 
 app.whenReady().then(() => {
-  protocol.handle('media', (request) => {
-    const filePath = fromMediaUrl(request.url);
-    return net.fetch(pathToFileURL(filePath).toString());
-  });
+  protocol.handle('media', handleMediaRequest);
 
   registerMediaIpc();
   createMainWindow();

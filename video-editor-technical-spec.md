@@ -194,7 +194,7 @@ All main→renderer progress events should use a consistent `{ jobId, percent, m
 
 ### 5.1 Media Bin
 - Import via file dialog or drag-and-drop from Windows Explorer
-- Supported formats: MP4, MOV, AVI, WebM (video); WAV, MP3, AAC (audio); PNG, JPG (images)
+- Supported formats: MP4, MOV, AVI, WebM, MKV (video); WAV, MP3, AAC (audio); PNG, JPG (images)
 - Display: thumbnail, filename, duration, resolution
 - Generate thumbnails via FFmpeg (`-ss` seek + single frame extract) asynchronously, don't block import
 - Delete/remove from bin (does not delete source file on disk)

@@ -6,7 +6,7 @@ import { runProbe, parseProbeOutput } from '../ffmpeg/probe';
 import { generateThumbnail } from '../ffmpeg/thumbnail';
 import type { MediaAsset } from '../../shared/types';
 
-const VIDEO_EXT = ['.mp4', '.mov', '.avi', '.webm'];
+const VIDEO_EXT = ['.mp4', '.mov', '.avi', '.webm', '.mkv'];
 const AUDIO_EXT = ['.wav', '.mp3', '.aac'];
 const IMAGE_EXT = ['.png', '.jpg', '.jpeg'];
 
