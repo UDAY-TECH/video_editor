@@ -13,6 +13,7 @@
   },
   "include": [
     "electron.vite.config.ts",
+    "globals.d.ts",
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*"

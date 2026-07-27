@@ -1,9 +1,11 @@
-import { contextBridge } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
+import type { Api } from '../shared/api';
 
-// Typed IPC surface exposed to the renderer. Channels will be added here as
-// each IPC domain (media, project, export) is implemented in later phases.
-const api = {};
+const api: Api = {
+  media: {
+    import: (paths) => ipcRenderer.invoke('media:import', paths),
+    generateThumbnail: (asset) => ipcRenderer.invoke('media:generateThumbnail', asset),
+  },
+};
 
 contextBridge.exposeInMainWorld('api', api);
-
-export type Api = typeof api;

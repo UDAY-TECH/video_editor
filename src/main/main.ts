@@ -1,5 +1,22 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, shell, protocol, net } from 'electron';
 import { join } from 'path';
+import { pathToFileURL } from 'url';
+import { fromMediaUrl } from '../shared/mediaUrl';
+import { registerMediaIpc } from './ipc/media';
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'media',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true,
+      corsEnabled: true,
+    },
+  },
+]);
 
 function createMainWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -34,6 +51,12 @@ function createMainWindow(): void {
 }
 
 app.whenReady().then(() => {
+  protocol.handle('media', (request) => {
+    const filePath = fromMediaUrl(request.url);
+    return net.fetch(pathToFileURL(filePath).toString());
+  });
+
+  registerMediaIpc();
   createMainWindow();
 
   app.on('activate', () => {
