@@ -1,14 +1,19 @@
-import type { Clip } from '@shared/types';
+import { useEffect, useRef, useState } from 'react';
+import type { Clip, MediaAsset } from '@shared/types';
+import { toMediaUrl } from '@shared/mediaUrl';
 import { timeToPx } from '../../engine/timelineMath';
 
 const EDGE_WIDTH = 8;
 const MIN_WIDTH_PX = 6;
+const WAVEFORM_CANVAS_WIDTH = 400;
+const WAVEFORM_CANVAS_HEIGHT = 32;
 
 interface ClipBlockProps {
   clip: Clip;
   label: string;
   zoom: number;
   selected: boolean;
+  asset?: MediaAsset;
   previewStartTime?: number;
   previewDuration?: number;
   onSelect: () => void;
@@ -22,6 +27,7 @@ export function ClipBlock({
   label,
   zoom,
   selected,
+  asset,
   previewStartTime,
   previewDuration,
   onSelect,
@@ -65,8 +71,16 @@ export function ClipBlock({
       style={{ left, width }}
       onMouseDown={handleMouseDown}
     >
+      {asset?.type === 'audio' && asset.waveformPath && (
+        <WaveformCanvas
+          waveformPath={asset.waveformPath}
+          assetDuration={asset.duration}
+          sourceIn={clip.sourceIn}
+          sourceOut={clip.sourceOut}
+        />
+      )}
       <div
-        className={`px-1.5 py-0.5 text-[10px] truncate pointer-events-none ${
+        className={`px-1.5 py-0.5 text-[10px] truncate pointer-events-none relative ${
           isText ? 'text-purple-100' : 'text-blue-100'
         }`}
       >
@@ -75,5 +89,68 @@ export function ClipBlock({
       <div className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize" />
       <div className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize" />
     </div>
+  );
+}
+
+function WaveformCanvas({
+  waveformPath,
+  assetDuration,
+  sourceIn,
+  sourceOut,
+}: {
+  waveformPath: string;
+  assetDuration: number;
+  sourceIn: number;
+  sourceOut: number;
+}): JSX.Element {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [peaks, setPeaks] = useState<number[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(toMediaUrl(waveformPath))
+      .then((r) => r.json())
+      .then((data: number[]) => {
+        if (!cancelled) setPeaks(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [waveformPath]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !peaks || peaks.length === 0) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, WAVEFORM_CANVAS_WIDTH, WAVEFORM_CANVAS_HEIGHT);
+
+    // Fixed-resolution peaks slice proportionally by sourceIn/sourceOut over
+    // the asset's total duration, so trimming shows the correct portion
+    // regardless of the clip's on-screen pixel width (CSS stretches this
+    // fixed-size buffer to fit, so zoom changes need no redraw).
+    const startFrac = assetDuration > 0 ? sourceIn / assetDuration : 0;
+    const endFrac = assetDuration > 0 ? sourceOut / assetDuration : 1;
+    const startIdx = Math.max(0, Math.floor(startFrac * peaks.length));
+    const endIdx = Math.min(peaks.length, Math.max(startIdx + 1, Math.ceil(endFrac * peaks.length)));
+    const slice = peaks.slice(startIdx, endIdx);
+    if (slice.length === 0) return;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    const barWidth = WAVEFORM_CANVAS_WIDTH / slice.length;
+    slice.forEach((peak, i) => {
+      const barHeight = Math.max(1, peak * WAVEFORM_CANVAS_HEIGHT);
+      ctx.fillRect(i * barWidth, (WAVEFORM_CANVAS_HEIGHT - barHeight) / 2, Math.max(1, barWidth - 0.5), barHeight);
+    });
+  }, [peaks, assetDuration, sourceIn, sourceOut]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={WAVEFORM_CANVAS_WIDTH}
+      height={WAVEFORM_CANVAS_HEIGHT}
+      className="absolute inset-0 w-full h-full pointer-events-none"
+    />
   );
 }

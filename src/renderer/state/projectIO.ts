@@ -35,6 +35,20 @@ function regenerateThumbnails(assets: MediaAsset[]): void {
   }
 }
 
+function regenerateWaveforms(assets: MediaAsset[]): void {
+  for (const asset of assets) {
+    if (asset.type !== 'audio') continue;
+    window.api.media
+      .generateWaveform(asset)
+      .then((waveformPath) => {
+        if (waveformPath && waveformPath !== asset.waveformPath) {
+          useMediaBinStore.getState().updateAsset(asset.id, { waveformPath });
+        }
+      })
+      .catch(() => {});
+  }
+}
+
 export function applyProjectFile(project: ProjectFile, filePath: string): void {
   useMediaBinStore.getState().setAssets(project.mediaAssets);
   useTimelineStore.getState().loadTracks(project.tracks);
@@ -47,6 +61,7 @@ export function applyProjectFile(project: ProjectFile, filePath: string): void {
     filePath,
   });
   regenerateThumbnails(project.mediaAssets);
+  regenerateWaveforms(project.mediaAssets);
 }
 
 export function resetToNewProject(): void {

@@ -22,6 +22,11 @@ function requireNumber(value: unknown, field: string): number {
   return value;
 }
 
+function requireBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`Invalid project file: missing or invalid "${field}"`);
+  return value;
+}
+
 function requireArray(value: unknown, field: string): unknown[] {
   if (!Array.isArray(value)) throw new Error(`Invalid project file: missing or invalid "${field}"`);
   return value;
@@ -55,6 +60,7 @@ function validateClip(value: unknown, trackIndex: number, clipIndex: number): vo
   requireNumber(clip.duration, `${prefix}.duration`);
   requireNumber(clip.sourceIn, `${prefix}.sourceIn`);
   requireNumber(clip.sourceOut, `${prefix}.sourceOut`);
+  requireNumber(clip.volume, `${prefix}.volume`);
   requireObject(clip.transform, `${prefix}.transform`);
   requireArray(clip.effects, `${prefix}.effects`);
   requireObject(clip.keyframes, `${prefix}.keyframes`);
@@ -73,6 +79,7 @@ function validateTrack(value: unknown, index: number): void {
   requireString(track.id, `${prefix}.id`);
   requireString(track.type, `${prefix}.type`);
   requireNumber(track.index, `${prefix}.index`);
+  requireBoolean(track.solo, `${prefix}.solo`);
   const clips = requireArray(track.clips, `${prefix}.clips`);
   clips.forEach((clip, clipIndex) => validateClip(clip, index, clipIndex));
 }
@@ -113,6 +120,29 @@ function migrateToCurrentVersion(raw: Record<string, unknown>): Record<string, u
     // valid mediaAssetId, which remains valid under the new schema.
     migrated = { ...migrated, version: '1.1.0' };
     version = '1.1.0';
+  }
+
+  if (version === '1.1.0') {
+    // 1.1.0 -> 1.2.0: added Clip.volume (default 1, keyframeable like any
+    // other property) and Track.solo (default false), plus optional
+    // Track ducking fields and MediaAsset.waveformPath (no default needed
+    // since they're optional). Inject defaults for the two new required fields.
+    const tracks = Array.isArray(migrated.tracks) ? migrated.tracks : [];
+    const migratedTracks = tracks.map((rawTrack) => {
+      const track = isPlainObject(rawTrack) ? rawTrack : {};
+      const clips = Array.isArray(track.clips) ? track.clips : [];
+      const migratedClips = clips.map((rawClip) => {
+        const clip = isPlainObject(rawClip) ? rawClip : {};
+        return { ...clip, volume: typeof clip.volume === 'number' ? clip.volume : 1 };
+      });
+      return {
+        ...track,
+        solo: typeof track.solo === 'boolean' ? track.solo : false,
+        clips: migratedClips,
+      };
+    });
+    migrated = { ...migrated, tracks: migratedTracks, version: '1.2.0' };
+    version = '1.2.0';
   }
 
   if (version === CURRENT_PROJECT_VERSION) return migrated;

@@ -4,10 +4,10 @@ import type { MediaAsset, Track } from '@shared/types';
 
 function seedTracks(): Track[] {
   return [
-    { id: 'v1', type: 'video', index: 0, muted: false, locked: false, clips: [] },
-    { id: 'v2', type: 'video', index: 1, muted: false, locked: false, clips: [] },
-    { id: 'a1', type: 'audio', index: 0, muted: false, locked: false, clips: [] },
-    { id: 'a2', type: 'audio', index: 1, muted: false, locked: false, clips: [] },
+    { id: 'v1', type: 'video', index: 0, muted: false, solo: false, locked: false, clips: [] },
+    { id: 'v2', type: 'video', index: 1, muted: false, solo: false, locked: false, clips: [] },
+    { id: 'a1', type: 'audio', index: 0, muted: false, solo: false, locked: false, clips: [] },
+    { id: 'a2', type: 'audio', index: 1, muted: false, solo: false, locked: false, clips: [] },
   ];
 }
 
@@ -419,5 +419,84 @@ describe('addTextClip / updateTextContent', () => {
     for (const clip of trackClips('v1')) {
       expect(clip.text?.content).toBe('Text');
     }
+  });
+});
+
+describe('updateClipVolume / clearVolumeKeyframes', () => {
+  it('patches volume and is undoable', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+
+    useTimelineStore.getState().updateClipVolume(clipId, 0.5);
+    expect(firstClip()!.volume).toBe(0.5);
+
+    useTimelineStore.getState().undo();
+    expect(firstClip()!.volume).toBe(1);
+  });
+
+  it('is a no-op on a locked track', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+    useTimelineStore.getState().toggleTrackLock('v1');
+
+    useTimelineStore.getState().updateClipVolume(clipId, 0.2);
+    expect(firstClip()!.volume).toBe(1);
+  });
+
+  it('keyframes volume via the generic setKeyframe/removeKeyframe actions', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+
+    useTimelineStore.getState().setKeyframe(clipId, 'volume', 2, 0.3);
+    expect(firstClip()!.keyframes.volume).toEqual([{ time: 2, value: 0.3, easing: 'linear' }]);
+
+    useTimelineStore.getState().removeKeyframe(clipId, 'volume', 2);
+    expect(firstClip()!.keyframes.volume).toBeUndefined();
+  });
+
+  it('clearVolumeKeyframes removes all volume keyframes and bakes a static value, and is undoable', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+    useTimelineStore.getState().setKeyframe(clipId, 'volume', 1, 0);
+    useTimelineStore.getState().setKeyframe(clipId, 'volume', 5, 1);
+
+    useTimelineStore.getState().clearVolumeKeyframes(clipId, 0.6);
+    expect(firstClip()!.keyframes.volume).toBeUndefined();
+    expect(firstClip()!.volume).toBe(0.6);
+
+    useTimelineStore.getState().undo();
+    expect(firstClip()!.keyframes.volume).toHaveLength(2);
+    expect(firstClip()!.volume).toBe(1);
+  });
+});
+
+describe('toggleTrackSolo', () => {
+  it('toggles solo and is undoable', () => {
+    useTimelineStore.getState().toggleTrackSolo('v1');
+    expect(useTimelineStore.getState().tracks.find((t) => t.id === 'v1')!.solo).toBe(true);
+    useTimelineStore.getState().undo();
+    expect(useTimelineStore.getState().tracks.find((t) => t.id === 'v1')!.solo).toBe(false);
+  });
+});
+
+describe('setDuckingRule', () => {
+  it('sets a ducking rule and is undoable', () => {
+    useTimelineStore.getState().setDuckingRule('a2', 'a1', 12);
+    const track = useTimelineStore.getState().tracks.find((t) => t.id === 'a2')!;
+    expect(track.duckingTriggerTrackId).toBe('a1');
+    expect(track.duckingReductionDb).toBe(12);
+
+    useTimelineStore.getState().undo();
+    const restored = useTimelineStore.getState().tracks.find((t) => t.id === 'a2')!;
+    expect(restored.duckingTriggerTrackId).toBeUndefined();
+    expect(restored.duckingReductionDb).toBeUndefined();
+  });
+
+  it('clears a ducking rule when passed null', () => {
+    useTimelineStore.getState().setDuckingRule('a2', 'a1', 12);
+    useTimelineStore.getState().setDuckingRule('a2', null, 0);
+    const track = useTimelineStore.getState().tracks.find((t) => t.id === 'a2')!;
+    expect(track.duckingTriggerTrackId).toBeUndefined();
+    expect(track.duckingReductionDb).toBeUndefined();
   });
 });

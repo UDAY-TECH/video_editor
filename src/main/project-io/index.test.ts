@@ -26,6 +26,7 @@ describe('writeProjectFile / readProjectFile', () => {
           type: 'video',
           index: 0,
           muted: false,
+          solo: false,
           locked: false,
           clips: [
             {
@@ -37,6 +38,7 @@ describe('writeProjectFile / readProjectFile', () => {
               sourceIn: 0,
               sourceOut: 10,
               speed: 1,
+              volume: 1,
               transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
               effects: [],
               keyframes: {},

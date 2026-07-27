@@ -25,6 +25,12 @@ async function importAndThumbnail(
         if (thumbnailPath) updateAsset(asset.id, { thumbnailPath });
       })
       .catch(() => {});
+    window.api.media
+      .generateWaveform(asset)
+      .then((waveformPath) => {
+        if (waveformPath) updateAsset(asset.id, { waveformPath });
+      })
+      .catch(() => {});
   }
 }
 

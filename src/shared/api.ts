@@ -5,6 +5,7 @@ export interface MediaApi {
   generateThumbnail(
     asset: Pick<MediaAsset, 'id' | 'filePath' | 'type' | 'duration'>,
   ): Promise<string | null>;
+  generateWaveform(asset: Pick<MediaAsset, 'id' | 'filePath' | 'type'>): Promise<string | null>;
 }
 
 export interface ProjectSaveResult {

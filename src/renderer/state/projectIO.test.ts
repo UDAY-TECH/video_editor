@@ -42,7 +42,12 @@ describe('buildProjectFile / applyProjectFile', () => {
     expect(useMediaBinStore.getState().assets).toHaveLength(0);
 
     (globalThis as { window?: unknown }).window = {
-      api: { media: { generateThumbnail: vi.fn().mockResolvedValue(null) } },
+      api: {
+        media: {
+          generateThumbnail: vi.fn().mockResolvedValue(null),
+          generateWaveform: vi.fn().mockResolvedValue(null),
+        },
+      },
     };
     applyProjectFile(project, 'C:\\projects\\test.veproj');
 
@@ -117,7 +122,13 @@ describe('loadProject', () => {
       .fn()
       .mockResolvedValue({ canceled: false, filePath: 'C:\\p\\loaded.veproj', project: projectFile });
     (globalThis as { window?: unknown }).window = {
-      api: { project: { load }, media: { generateThumbnail: vi.fn().mockResolvedValue(null) } },
+      api: {
+        project: { load },
+        media: {
+          generateThumbnail: vi.fn().mockResolvedValue(null),
+          generateWaveform: vi.fn().mockResolvedValue(null),
+        },
+      },
     };
 
     await loadProject();

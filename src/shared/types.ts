@@ -27,6 +27,8 @@ export interface MediaAsset {
   resolution?: { width: number; height: number };
   thumbnailPath?: string;
   proxyPath?: string;
+  // Cached fixed-length peak array (JSON file) for waveform display, alongside thumbnailPath.
+  waveformPath?: string;
 }
 
 export interface Track {
@@ -34,8 +36,13 @@ export interface Track {
   type: 'video' | 'audio';
   index: number;
   muted: boolean;
+  solo: boolean;
   locked: boolean;
   clips: Clip[];
+  // Rule-based ducking (Section 5.6): while `duckingTriggerTrackId` has an
+  // active, audible clip, this track's gain is reduced by duckingReductionDb.
+  duckingTriggerTrackId?: string;
+  duckingReductionDb?: number;
 }
 
 export interface Clip {
@@ -49,6 +56,9 @@ export interface Clip {
   sourceIn: number;
   sourceOut: number;
   speed: number;
+  // 1.0 = 100%; keyframeable via keyframes['volume'] like any transform
+  // property, even though it doesn't live on `transform` (it's audio, not visual).
+  volume: number;
   transform: Transform;
   effects: Effect[];
   keyframes: Record<string, Keyframe[]>;

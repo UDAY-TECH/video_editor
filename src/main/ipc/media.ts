@@ -1,9 +1,10 @@
 import { ipcMain, dialog, app } from 'electron';
 import { randomUUID } from 'crypto';
 import { extname, join } from 'path';
-import { access, mkdir } from 'fs/promises';
+import { access, mkdir, writeFile } from 'fs/promises';
 import { runProbe, parseProbeOutput } from '../ffmpeg/probe';
 import { generateThumbnail } from '../ffmpeg/thumbnail';
+import { extractWaveformPeaks } from '../ffmpeg/waveform';
 import type { MediaAsset } from '../../shared/types';
 
 const VIDEO_EXT = ['.mp4', '.mov', '.avi', '.webm', '.mkv'];
@@ -33,6 +34,10 @@ async function buildMediaAsset(filePath: string): Promise<MediaAsset | null> {
 
 function thumbnailDir(): string {
   return join(app.getPath('userData'), 'thumbnails');
+}
+
+function waveformDir(): string {
+  return join(app.getPath('userData'), 'waveforms');
 }
 
 export function registerMediaIpc(): void {
@@ -77,6 +82,35 @@ export function registerMediaIpc(): void {
         return outputPath;
       } catch (err) {
         console.warn(`Failed to generate thumbnail for ${asset.filePath}:`, err);
+        return null;
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'media:generateWaveform',
+    async (_event, asset: Pick<MediaAsset, 'id' | 'filePath' | 'type'>) => {
+      // Only audio-type assets ever show a waveform (ClipBlock.tsx renders it
+      // only for clips on audio tracks) - skip video/image to avoid a wasted
+      // full ffmpeg PCM decode + disk write with no consumer.
+      if (asset.type !== 'audio') return null;
+
+      await mkdir(waveformDir(), { recursive: true });
+      const outputPath = join(waveformDir(), `${asset.id}.json`);
+
+      try {
+        await access(outputPath);
+        return outputPath;
+      } catch {
+        // Doesn't exist yet - fall through and generate it.
+      }
+
+      try {
+        const peaks = await extractWaveformPeaks(asset.filePath);
+        await writeFile(outputPath, JSON.stringify(peaks));
+        return outputPath;
+      } catch (err) {
+        console.warn(`Failed to generate waveform for ${asset.filePath}:`, err);
         return null;
       }
     },

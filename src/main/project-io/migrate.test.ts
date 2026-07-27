@@ -57,6 +57,46 @@ describe('migrateProjectFile', () => {
         type: 'video',
         index: 0,
         muted: false,
+        solo: false,
+        locked: false,
+        clips: [
+          {
+            id: 'c1',
+            mediaAssetId: 'a1',
+            trackId: 't1',
+            startTime: 0,
+            duration: 5,
+            sourceIn: 0,
+            sourceOut: 5,
+            speed: 1,
+            volume: 1,
+            transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
+            effects: [],
+            keyframes: {},
+          },
+        ],
+      },
+    ];
+    expect(() => migrateProjectFile(project)).not.toThrow();
+  });
+
+  it('rejects a track missing solo', () => {
+    const project = validProject();
+    project.tracks = [
+      { id: 't1', type: 'video', index: 0, muted: false, locked: false, clips: [] },
+    ];
+    expect(() => migrateProjectFile(project)).toThrow(/\.solo/);
+  });
+
+  it('rejects a clip missing volume', () => {
+    const project = validProject();
+    project.tracks = [
+      {
+        id: 't1',
+        type: 'video',
+        index: 0,
+        muted: false,
+        solo: false,
         locked: false,
         clips: [
           {
@@ -75,13 +115,13 @@ describe('migrateProjectFile', () => {
         ],
       },
     ];
-    expect(() => migrateProjectFile(project)).not.toThrow();
+    expect(() => migrateProjectFile(project)).toThrow(/\.volume/);
   });
 
   it('rejects a track whose clips are missing required fields', () => {
     const project = validProject();
     project.tracks = [
-      { id: 't1', type: 'video', index: 0, clips: [{ id: 'c1' }] },
+      { id: 't1', type: 'video', index: 0, solo: false, clips: [{ id: 'c1' }] },
     ];
     expect(() => migrateProjectFile(project)).toThrow(/clips\[0\]/);
   });
@@ -98,6 +138,41 @@ describe('migrateProjectFile', () => {
     expect(result.version).toBe(CURRENT_PROJECT_VERSION);
   });
 
+  it('migrates a 1.1.0 project file forward, injecting solo/volume defaults', () => {
+    const project = {
+      ...validProject(),
+      version: '1.1.0',
+      tracks: [
+        {
+          id: 't1',
+          type: 'video',
+          index: 0,
+          muted: false,
+          locked: false,
+          clips: [
+            {
+              id: 'c1',
+              mediaAssetId: 'a1',
+              trackId: 't1',
+              startTime: 0,
+              duration: 5,
+              sourceIn: 0,
+              sourceOut: 5,
+              speed: 1,
+              transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
+              effects: [],
+              keyframes: {},
+            },
+          ],
+        },
+      ],
+    };
+    const result = migrateProjectFile(project);
+    expect(result.version).toBe(CURRENT_PROJECT_VERSION);
+    expect(result.tracks[0].solo).toBe(false);
+    expect(result.tracks[0].clips[0].volume).toBe(1);
+  });
+
   it('accepts a text clip that has no mediaAssetId', () => {
     const project = validProject();
     project.tracks = [
@@ -106,6 +181,7 @@ describe('migrateProjectFile', () => {
         type: 'video',
         index: 0,
         muted: false,
+        solo: false,
         locked: false,
         clips: [
           {
@@ -116,6 +192,7 @@ describe('migrateProjectFile', () => {
             sourceIn: 0,
             sourceOut: 5,
             speed: 1,
+            volume: 1,
             transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
             effects: [],
             keyframes: {},
@@ -143,6 +220,7 @@ describe('migrateProjectFile', () => {
         type: 'video',
         index: 0,
         muted: false,
+        solo: false,
         locked: false,
         clips: [
           {
@@ -153,6 +231,7 @@ describe('migrateProjectFile', () => {
             sourceIn: 0,
             sourceOut: 5,
             speed: 1,
+            volume: 1,
             transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
             effects: [],
             keyframes: {},
@@ -171,6 +250,7 @@ describe('migrateProjectFile', () => {
         type: 'video',
         index: 0,
         muted: false,
+        solo: false,
         locked: false,
         clips: [
           {
@@ -181,6 +261,7 @@ describe('migrateProjectFile', () => {
             sourceIn: 0,
             sourceOut: 5,
             speed: 1,
+            volume: 1,
             transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
             effects: [],
             keyframes: {},

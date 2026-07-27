@@ -39,10 +39,10 @@ function loadSnapping(): boolean {
 
 export function createDefaultTracks(): Track[] {
   return [
-    { id: crypto.randomUUID(), type: 'video', index: 0, muted: false, locked: false, clips: [] },
-    { id: crypto.randomUUID(), type: 'video', index: 1, muted: false, locked: false, clips: [] },
-    { id: crypto.randomUUID(), type: 'audio', index: 0, muted: false, locked: false, clips: [] },
-    { id: crypto.randomUUID(), type: 'audio', index: 1, muted: false, locked: false, clips: [] },
+    { id: crypto.randomUUID(), type: 'video', index: 0, muted: false, solo: false, locked: false, clips: [] },
+    { id: crypto.randomUUID(), type: 'video', index: 1, muted: false, solo: false, locked: false, clips: [] },
+    { id: crypto.randomUUID(), type: 'audio', index: 0, muted: false, solo: false, locked: false, clips: [] },
+    { id: crypto.randomUUID(), type: 'audio', index: 1, muted: false, solo: false, locked: false, clips: [] },
   ];
 }
 
@@ -105,7 +105,9 @@ interface TimelineState {
   splitClipAt: (clipId: string, atTime: number) => boolean;
   removeClip: (clipId: string, mode: 'lift' | 'ripple') => void;
   toggleTrackMute: (trackId: string) => void;
+  toggleTrackSolo: (trackId: string) => void;
   toggleTrackLock: (trackId: string) => void;
+  setDuckingRule: (trackId: string, triggerTrackId: string | null, reductionDb: number) => void;
 
   updateClipTransform: (clipId: string, patch: Partial<Transform>) => void;
   setKeyframe: (
@@ -117,6 +119,9 @@ interface TimelineState {
   ) => void;
   removeKeyframe: (clipId: string, property: string, time: number) => void;
   clearKeyframesForProperty: (clipId: string, property: string, bakedValue: number) => void;
+
+  updateClipVolume: (clipId: string, volume: number) => void;
+  clearVolumeKeyframes: (clipId: string, bakedValue: number) => void;
 
   undo: () => void;
   redo: () => void;
@@ -163,6 +168,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         type,
         index: sameType.length,
         muted: false,
+        solo: false,
         locked: false,
         clips: [],
       };
@@ -188,6 +194,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         sourceIn: 0,
         sourceOut: duration,
         speed: 1,
+        volume: 1,
         transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
         effects: [],
         keyframes: {},
@@ -214,6 +221,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         sourceIn: 0,
         sourceOut: duration,
         speed: 1,
+        volume: 1,
         transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
         effects: [],
         keyframes: {},
@@ -423,6 +431,40 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
       });
     },
 
+    toggleTrackSolo: (trackId) => {
+      const track = get().tracks.find((t) => t.id === trackId);
+      if (!track) return;
+      const prevSolo = track.solo;
+      runCommand({
+        do: () =>
+          set((state) => ({
+            tracks: state.tracks.map((t) => (t.id === trackId ? { ...t, solo: !prevSolo } : t)),
+          })),
+        undo: () =>
+          set((state) => ({
+            tracks: state.tracks.map((t) => (t.id === trackId ? { ...t, solo: prevSolo } : t)),
+          })),
+      });
+    },
+
+    setDuckingRule: (trackId, triggerTrackId, reductionDb) => {
+      const track = get().tracks.find((t) => t.id === trackId);
+      if (!track) return;
+      const prev = {
+        duckingTriggerTrackId: track.duckingTriggerTrackId,
+        duckingReductionDb: track.duckingReductionDb,
+      };
+      const next =
+        triggerTrackId === null
+          ? { duckingTriggerTrackId: undefined, duckingReductionDb: undefined }
+          : { duckingTriggerTrackId: triggerTrackId, duckingReductionDb: reductionDb };
+      runCommand({
+        do: () => set((state) => ({ tracks: state.tracks.map((t) => (t.id === trackId ? { ...t, ...next } : t)) })),
+        undo: () =>
+          set((state) => ({ tracks: state.tracks.map((t) => (t.id === trackId ? { ...t, ...prev } : t)) })),
+      });
+    },
+
     updateClipTransform: (clipId, patch) => {
       const found = findClip(get().tracks, clipId);
       if (!found || found.track.locked) return;
@@ -504,6 +546,44 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
               ...c,
               keyframes: prevKeyframes,
               transform: prevTransform,
+            })),
+          })),
+      });
+    },
+
+    updateClipVolume: (clipId, volume) => {
+      const found = findClip(get().tracks, clipId);
+      if (!found || found.track.locked) return;
+      const prevVolume = found.clip.volume;
+      runCommand({
+        do: () => set((state) => ({ tracks: replaceClip(state.tracks, clipId, (c) => ({ ...c, volume })) })),
+        undo: () =>
+          set((state) => ({ tracks: replaceClip(state.tracks, clipId, (c) => ({ ...c, volume: prevVolume })) })),
+      });
+    },
+
+    clearVolumeKeyframes: (clipId, bakedValue) => {
+      const found = findClip(get().tracks, clipId);
+      if (!found || found.track.locked) return;
+      const prevKeyframes = found.clip.keyframes;
+      const prevVolume = found.clip.volume;
+      const nextKeyframes = { ...prevKeyframes };
+      delete nextKeyframes.volume;
+      runCommand({
+        do: () =>
+          set((state) => ({
+            tracks: replaceClip(state.tracks, clipId, (c) => ({
+              ...c,
+              keyframes: nextKeyframes,
+              volume: bakedValue,
+            })),
+          })),
+        undo: () =>
+          set((state) => ({
+            tracks: replaceClip(state.tracks, clipId, (c) => ({
+              ...c,
+              keyframes: prevKeyframes,
+              volume: prevVolume,
             })),
           })),
       });

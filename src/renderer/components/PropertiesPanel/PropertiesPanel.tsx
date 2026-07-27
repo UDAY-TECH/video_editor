@@ -1,6 +1,7 @@
 import { useTimelineStore, findClip } from '../../state/timelineStore';
+import { useMediaBinStore } from '../../state/mediaBinStore';
 import { interpolateKeyframes } from '../../engine/keyframes';
-import type { Clip, TextClipContent } from '@shared/types';
+import type { Keyframe, TextClipContent } from '@shared/types';
 
 const FONT_FAMILIES = [
   'Arial',
@@ -39,7 +40,10 @@ export function PropertiesPanel(): JSX.Element {
   const setKeyframe = useTimelineStore((s) => s.setKeyframe);
   const removeKeyframe = useTimelineStore((s) => s.removeKeyframe);
   const clearKeyframesForProperty = useTimelineStore((s) => s.clearKeyframesForProperty);
+  const updateClipVolume = useTimelineStore((s) => s.updateClipVolume);
+  const clearVolumeKeyframes = useTimelineStore((s) => s.clearVolumeKeyframes);
   const updateTextContent = useTimelineStore((s) => s.updateTextContent);
+  const assets = useMediaBinStore((s) => s.assets);
 
   const found = selectedClipId ? findClip(tracks, selectedClipId) : null;
 
@@ -56,6 +60,8 @@ export function PropertiesPanel(): JSX.Element {
 
   const { clip, track } = found;
   const localTime = Math.max(0, Math.min(playheadTime - clip.startTime, clip.duration));
+  const asset = clip.mediaAssetId ? assets.find((a) => a.id === clip.mediaAssetId) : undefined;
+  const hasAudio = !clip.text && (!asset || asset.type !== 'image');
 
   return (
     <div className="flex h-full flex-col bg-neutral-900 border-l border-neutral-800">
@@ -74,11 +80,16 @@ export function PropertiesPanel(): JSX.Element {
           />
         )}
         {PROPERTIES.map((prop) => (
-          <TransformPropertyRow
+          <KeyframeablePropertyRow
             key={prop.key}
-            config={prop}
-            clip={clip}
+            label={prop.label}
+            step={prop.step}
+            min={prop.min}
+            max={prop.max}
+            baseValue={clip.transform[prop.key]}
+            keyframes={clip.keyframes[prop.key] ?? []}
             localTime={localTime}
+            clipDuration={clip.duration}
             disabled={track.locked}
             onChange={(value) => {
               const keyframes = clip.keyframes[prop.key];
@@ -99,43 +110,81 @@ export function PropertiesPanel(): JSX.Element {
             onRemoveKeyframe={(time) => removeKeyframe(clip.id, prop.key, time)}
           />
         ))}
+        {hasAudio && (
+          <KeyframeablePropertyRow
+            label="Volume"
+            step={0.01}
+            min={0}
+            max={1}
+            baseValue={clip.volume}
+            keyframes={clip.keyframes.volume ?? []}
+            localTime={localTime}
+            clipDuration={clip.duration}
+            disabled={track.locked}
+            onChange={(value) => {
+              const keyframes = clip.keyframes.volume;
+              if (keyframes && keyframes.length > 0) {
+                setKeyframe(clip.id, 'volume', localTime, value);
+              } else {
+                updateClipVolume(clip.id, value);
+              }
+            }}
+            onToggleKeyframing={(currentValue) => {
+              const keyframes = clip.keyframes.volume;
+              if (keyframes && keyframes.length > 0) {
+                clearVolumeKeyframes(clip.id, currentValue);
+              } else {
+                setKeyframe(clip.id, 'volume', localTime, currentValue);
+              }
+            }}
+            onRemoveKeyframe={(time) => removeKeyframe(clip.id, 'volume', time)}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-function TransformPropertyRow({
-  config,
-  clip,
+function KeyframeablePropertyRow({
+  label,
+  step,
+  min,
+  max,
+  baseValue,
+  keyframes,
   localTime,
+  clipDuration,
   disabled,
   onChange,
   onToggleKeyframing,
   onRemoveKeyframe,
 }: {
-  config: PropertyConfig;
-  clip: Clip;
+  label: string;
+  step: number;
+  min?: number;
+  max?: number;
+  baseValue: number;
+  keyframes: Keyframe[];
   localTime: number;
+  clipDuration: number;
   disabled: boolean;
   onChange: (value: number) => void;
   onToggleKeyframing: (currentValue: number) => void;
   onRemoveKeyframe: (time: number) => void;
 }): JSX.Element {
-  const keyframes = clip.keyframes[config.key] ?? [];
   const hasKeyframes = keyframes.length > 0;
-  const baseValue = clip.transform[config.key];
   const displayValue = hasKeyframes ? interpolateKeyframes(keyframes, localTime, baseValue) : baseValue;
 
   return (
     <div>
       <div className="flex items-center gap-2 mb-1">
-        <span className="text-xs text-neutral-400 flex-1">{config.label}</span>
+        <span className="text-xs text-neutral-400 flex-1">{label}</span>
         <input
           type="number"
           className="w-20 bg-neutral-800 rounded px-1.5 py-0.5 text-xs text-right disabled:opacity-50"
-          step={config.step}
-          min={config.min}
-          max={config.max}
+          step={step}
+          min={min}
+          max={max}
           value={Math.round(displayValue * 1000) / 1000}
           disabled={disabled}
           onChange={(e) => {
@@ -160,13 +209,13 @@ function TransformPropertyRow({
         <div className="relative h-4 bg-neutral-950 rounded" style={{ width: MINI_TIMELINE_WIDTH }}>
           <div
             className="absolute top-0 bottom-0 w-px bg-red-500"
-            style={{ left: `${(localTime / (clip.duration || 1)) * 100}%` }}
+            style={{ left: `${(localTime / (clipDuration || 1)) * 100}%` }}
           />
           {keyframes.map((kf) => (
             <button
               key={kf.time}
               className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-blue-400 hover:bg-red-400"
-              style={{ left: `${(kf.time / (clip.duration || 1)) * 100}%` }}
+              style={{ left: `${(kf.time / (clipDuration || 1)) * 100}%` }}
               title={`t=${kf.time.toFixed(2)}s, value=${kf.value.toFixed(2)} - click to remove`}
               onClick={() => onRemoveKeyframe(kf.time)}
             />

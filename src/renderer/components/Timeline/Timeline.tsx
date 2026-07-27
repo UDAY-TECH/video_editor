@@ -6,8 +6,8 @@ import { ClipBlock } from './ClipBlock';
 import type { Clip } from '@shared/types';
 
 const RULER_HEIGHT = 24;
-const LANE_HEIGHT = 56;
-const HEADER_WIDTH = 128;
+const LANE_HEIGHT = 64;
+const HEADER_WIDTH = 176;
 const MIN_CONTENT_SECONDS = 120;
 const CONTENT_PADDING_SECONDS = 30;
 const SNAP_PX_THRESHOLD = 10;
@@ -78,7 +78,9 @@ export function Timeline(): JSX.Element {
   const splitClipAt = useTimelineStore((s) => s.splitClipAt);
   const removeClip = useTimelineStore((s) => s.removeClip);
   const toggleTrackMute = useTimelineStore((s) => s.toggleTrackMute);
+  const toggleTrackSolo = useTimelineStore((s) => s.toggleTrackSolo);
   const toggleTrackLock = useTimelineStore((s) => s.toggleTrackLock);
+  const setDuckingRule = useTimelineStore((s) => s.setDuckingRule);
   const undo = useTimelineStore((s) => s.undo);
   const redo = useTimelineStore((s) => s.redo);
   const canUndo = useTimelineStore((s) => s.canUndo());
@@ -365,35 +367,84 @@ export function Timeline(): JSX.Element {
             style={{ height: RULER_HEIGHT }}
             className="border-b border-r border-neutral-800 bg-neutral-900"
           />
-          {tracks.map((track) => (
-            <div
-              key={track.id}
-              className="flex items-center gap-1 px-2 border-b border-r border-neutral-800 bg-neutral-900 text-[11px] text-neutral-400"
-              style={{ height: LANE_HEIGHT }}
-            >
-              <span className="uppercase font-medium">
-                {track.type} {track.index + 1}
-              </span>
-              <button
-                className={`ml-auto px-1 rounded ${
-                  track.muted ? 'bg-red-800 text-red-100' : 'hover:bg-neutral-800'
-                }`}
-                onClick={() => toggleTrackMute(track.id)}
-                title="Mute"
+          {tracks.map((track) => {
+            const otherAudioTracks = tracks.filter((t) => t.type === 'audio' && t.id !== track.id);
+            return (
+              <div
+                key={track.id}
+                className="flex flex-col justify-center gap-1 px-2 border-b border-r border-neutral-800 bg-neutral-900 text-[11px] text-neutral-400"
+                style={{ height: LANE_HEIGHT }}
               >
-                M
-              </button>
-              <button
-                className={`px-1 rounded ${
-                  track.locked ? 'bg-yellow-800 text-yellow-100' : 'hover:bg-neutral-800'
-                }`}
-                onClick={() => toggleTrackLock(track.id)}
-                title="Lock"
-              >
-                L
-              </button>
-            </div>
-          ))}
+                <div className="flex items-center gap-1">
+                  <span className="uppercase font-medium">
+                    {track.type} {track.index + 1}
+                  </span>
+                  <button
+                    className={`ml-auto px-1 rounded ${
+                      track.muted ? 'bg-red-800 text-red-100' : 'hover:bg-neutral-800'
+                    }`}
+                    onClick={() => toggleTrackMute(track.id)}
+                    title="Mute"
+                  >
+                    M
+                  </button>
+                  <button
+                    className={`px-1 rounded ${
+                      track.solo ? 'bg-green-800 text-green-100' : 'hover:bg-neutral-800'
+                    }`}
+                    onClick={() => toggleTrackSolo(track.id)}
+                    title="Solo"
+                  >
+                    S
+                  </button>
+                  <button
+                    className={`px-1 rounded ${
+                      track.locked ? 'bg-yellow-800 text-yellow-100' : 'hover:bg-neutral-800'
+                    }`}
+                    onClick={() => toggleTrackLock(track.id)}
+                    title="Lock"
+                  >
+                    L
+                  </button>
+                </div>
+                {track.type === 'audio' && (
+                  <div className="flex items-center gap-1 text-[9px]">
+                    <select
+                      className="flex-1 min-w-0 bg-neutral-800 rounded px-0.5 py-0.5"
+                      value={track.duckingTriggerTrackId ?? ''}
+                      title="Duck this track's gain when the selected track has audio"
+                      onChange={(e) => {
+                        const triggerId = e.target.value || null;
+                        setDuckingRule(track.id, triggerId, track.duckingReductionDb ?? 12);
+                      }}
+                    >
+                      <option value="">Duck: none</option>
+                      {otherAudioTracks.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          Duck: audio {t.index + 1}
+                        </option>
+                      ))}
+                    </select>
+                    {track.duckingTriggerTrackId && (
+                      <input
+                        type="number"
+                        className="w-10 bg-neutral-800 rounded px-0.5 py-0.5 text-right"
+                        value={track.duckingReductionDb ?? 12}
+                        min={0}
+                        title="Reduction in dB while triggered"
+                        onChange={(e) => {
+                          const db = parseFloat(e.target.value);
+                          if (Number.isFinite(db)) {
+                            setDuckingRule(track.id, track.duckingTriggerTrackId ?? null, db);
+                          }
+                        }}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-auto relative">
@@ -434,6 +485,7 @@ export function Timeline(): JSX.Element {
                       label={labelForClip(clip)}
                       zoom={zoom}
                       selected={clip.id === selectedClipId}
+                      asset={assets.find((a) => a.id === clip.mediaAssetId)}
                       previewStartTime={preview.startTime}
                       previewDuration={preview.duration}
                       onSelect={() => selectClip(clip.id)}

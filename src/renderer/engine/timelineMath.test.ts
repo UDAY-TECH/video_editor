@@ -19,6 +19,7 @@ function makeClip(overrides: Partial<Clip> = {}): Clip {
     sourceIn: 0,
     sourceOut: 5,
     speed: 1,
+    volume: 1,
     transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
     effects: [],
     keyframes: {},
@@ -27,7 +28,7 @@ function makeClip(overrides: Partial<Clip> = {}): Clip {
 }
 
 function makeTrack(clips: Clip[]): Track {
-  return { id: 'track-1', type: 'video', index: 0, muted: false, locked: false, clips };
+  return { id: 'track-1', type: 'video', index: 0, muted: false, solo: false, locked: false, clips };
 }
 
 describe('pxToTime / timeToPx', () => {

@@ -5,6 +5,7 @@ import { useProjectStore } from '../../state/projectStore';
 import { toMediaUrl } from '@shared/mediaUrl';
 import { computeCompositeFrame, type CompositorLayer } from '../../engine/compositor';
 import { getTimelineEnd } from '../../engine/timelineMath';
+import { computeEffectiveGain } from '../../engine/audioMix';
 import type { MediaAsset } from '@shared/types';
 
 const TEXT_ANIM_DURATION = 0.5;
@@ -24,8 +25,18 @@ function formatTime(seconds: number): string {
 // pooled video elements to the exact frame rather than letting them play
 // natively, which is simpler to keep in sync with the timeline but can be
 // choppier than native playback for heavily compressed footage - a candidate
-// for the Phase 10 performance/proxy pass. Audio is intentionally silent
-// here; timeline audio mixing arrives with Phase 7.
+// for the Phase 10 performance/proxy pass.
+//
+// Audio (Phase 7) only plays for clips on AUDIO tracks, via a separate pool
+// of real <audio> elements that play natively (not seek-per-frame) during
+// playback, with gain recomputed every tick from the clip's own (possibly
+// keyframed) volume, track mute/solo, and rule-based ducking. Audio is
+// silent during scrubbing/pause, matching most editors. Known scope cut:
+// a video clip's own embedded audio track is not extracted/played here -
+// the video pool above is muted and permanently seek-driven (necessary for
+// frame-accurate visual scrubbing), which is fundamentally incompatible with
+// continuous audio playback, so video-with-audio stays silent in preview
+// for now.
 export function PreviewPlayer(): JSX.Element {
   const tracks = useTimelineStore((s) => s.tracks);
   const playheadTime = useTimelineStore((s) => s.playheadTime);
@@ -51,6 +62,9 @@ export function PreviewPlayer(): JSX.Element {
   const videoSrcRef = useRef<Map<string, string>>(new Map());
   const imagePoolRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const imageSrcRef = useRef<Map<string, string>>(new Map());
+  const audioPoolRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const audioSrcRef = useRef<Map<string, string>>(new Map());
+  const activeAudioClipRef = useRef<Map<string, string | null>>(new Map());
 
   const rafRef = useRef<number | null>(null);
   const lastTickRef = useRef<number | null>(null);
@@ -90,6 +104,88 @@ export function PreviewPlayer(): JSX.Element {
     return el;
   }
 
+  // If `clipId` is still the active clip for its track by the time this
+  // fires, retries the seek using the current playhead - covers the case
+  // where the initial seek in syncAudio threw because the element wasn't
+  // ready yet (readyState HAVE_NOTHING), which would otherwise leave it
+  // silently playing from position 0 instead of the correct offset.
+  function resyncAudioClip(clipId: string): void {
+    for (const track of tracksRef.current) {
+      if (track.type !== 'audio') continue;
+      if (activeAudioClipRef.current.get(track.id) !== clipId) continue;
+      const clip = track.clips.find((c) => c.id === clipId);
+      const el = audioPoolRef.current.get(clipId);
+      if (!clip || !el) continue;
+      const localTime = playheadRef.current - clip.startTime;
+      try {
+        el.currentTime = clip.sourceIn + localTime * clip.speed;
+      } catch {
+        // Still not ready.
+      }
+      if (isPlayingRef.current) void el.play().catch(() => {});
+    }
+  }
+
+  function getPooledAudio(clipId: string, src: string): HTMLAudioElement {
+    let el = audioPoolRef.current.get(clipId);
+    if (!el) {
+      el = new Audio();
+      el.addEventListener('loadedmetadata', () => resyncAudioClip(clipId));
+      audioPoolRef.current.set(clipId, el);
+    }
+    if (audioSrcRef.current.get(clipId) !== src) {
+      el.src = src;
+      audioSrcRef.current.set(clipId, src);
+    }
+    return el;
+  }
+
+  function pauseAllAudio(): void {
+    for (const el of audioPoolRef.current.values()) el.pause();
+    activeAudioClipRef.current.clear();
+  }
+
+  // Called every rAF tick during playback only (never while scrubbing/paused,
+  // matching most editors). For each audio track, detects when the active
+  // clip changes (pausing the outgoing one and seeking+playing the incoming
+  // one natively), and continuously updates the playing element's volume
+  // from the clip's own keyframed volume, track mute/solo, and ducking.
+  function syncAudio(time: number): void {
+    const audioTracks = tracksRef.current.filter((t) => t.type === 'audio');
+    for (const track of audioTracks) {
+      const activeClip =
+        track.clips.find((c) => time >= c.startTime && time < c.startTime + c.duration) ?? null;
+      const prevClipId = activeAudioClipRef.current.get(track.id) ?? null;
+
+      if ((activeClip?.id ?? null) !== prevClipId) {
+        if (prevClipId) audioPoolRef.current.get(prevClipId)?.pause();
+        if (activeClip) {
+          const asset = findAsset(activeClip.mediaAssetId ?? '');
+          if (asset) {
+            const el = getPooledAudio(activeClip.id, toMediaUrl(asset.filePath));
+            const localTime = time - activeClip.startTime;
+            el.playbackRate = activeClip.speed;
+            try {
+              el.currentTime = activeClip.sourceIn + localTime * activeClip.speed;
+            } catch {
+              // Not ready to seek yet - 'loadedmetadata' triggers a retry.
+            }
+            void el.play().catch(() => {});
+          }
+        }
+        activeAudioClipRef.current.set(track.id, activeClip?.id ?? null);
+      }
+
+      if (activeClip) {
+        const el = audioPoolRef.current.get(activeClip.id);
+        if (el) {
+          const localTime = time - activeClip.startTime;
+          el.volume = computeEffectiveGain(activeClip, localTime, track, tracksRef.current, time);
+        }
+      }
+    }
+  }
+
   // Prunes pooled elements for clips no longer present anywhere in the
   // timeline (deleted, or replaced via undo/redo), so the pool tracks the
   // current project rather than growing with every clip.id that ever existed
@@ -111,6 +207,18 @@ export function PreviewPlayer(): JSX.Element {
       imagePoolRef.current.get(clipId)?.removeEventListener('load', scheduleRedraw);
       imagePoolRef.current.delete(clipId);
       imageSrcRef.current.delete(clipId);
+    }
+    for (const clipId of [...audioPoolRef.current.keys()]) {
+      if (currentClipIds.has(clipId)) continue;
+      const el = audioPoolRef.current.get(clipId);
+      el?.pause();
+      el?.removeAttribute('src');
+      el?.load();
+      audioPoolRef.current.delete(clipId);
+      audioSrcRef.current.delete(clipId);
+      for (const [trackId, activeId] of [...activeAudioClipRef.current.entries()]) {
+        if (activeId === clipId) activeAudioClipRef.current.delete(trackId);
+      }
     }
   }
 
@@ -265,7 +373,10 @@ export function PreviewPlayer(): JSX.Element {
   }, [playheadTime, tracks, assets, settings]);
 
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying) {
+      pauseAllAudio();
+      return;
+    }
 
     function tick(now: number): void {
       if (!isPlayingRef.current) return;
@@ -278,9 +389,11 @@ export function PreviewPlayer(): JSX.Element {
         if (next >= end) {
           setPlayhead(end);
           setIsPlaying(false);
+          pauseAllAudio();
           return;
         }
         setPlayhead(next);
+        syncAudio(next);
       }
       rafRef.current = requestAnimationFrame(tick);
     }
