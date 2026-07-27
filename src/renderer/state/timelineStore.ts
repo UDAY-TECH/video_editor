@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Clip, Keyframe, MediaAsset, Track, TextClipContent, Transform } from '@shared/types';
+import type { Clip, ColorCorrection, Keyframe, MediaAsset, Track, TextClipContent, Transform } from '@shared/types';
 import { hasOverlap } from '../engine/timelineMath';
 
 const KEYFRAME_TIME_EPSILON = 1e-6;
@@ -7,6 +7,13 @@ const KEYFRAME_TIME_EPSILON = 1e-6;
 const DEFAULT_ZOOM = 50;
 const DEFAULT_IMAGE_DURATION = 5;
 const DEFAULT_TEXT_DURATION = 5;
+const DEFAULT_COLOR_CORRECTION: ColorCorrection = {
+  brightness: 0,
+  contrast: 0,
+  saturation: 0,
+  exposure: 0,
+  lutIntensity: 1,
+};
 const DEFAULT_TEXT_CONTENT: TextClipContent = {
   content: 'Text',
   fontFamily: 'Arial',
@@ -123,6 +130,13 @@ interface TimelineState {
   updateClipVolume: (clipId: string, volume: number) => void;
   clearVolumeKeyframes: (clipId: string, bakedValue: number) => void;
 
+  updateClipColorCorrection: (clipId: string, patch: Partial<ColorCorrection>) => void;
+  clearColorCorrectionKeyframes: (
+    clipId: string,
+    property: 'brightness' | 'contrast' | 'saturation' | 'exposure',
+    bakedValue: number,
+  ) => void;
+
   undo: () => void;
   redo: () => void;
   canUndo: () => boolean;
@@ -198,6 +212,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
         effects: [],
         keyframes: {},
+        colorCorrection: { ...DEFAULT_COLOR_CORRECTION },
       };
       runCommand({
         do: () => set((state) => ({ tracks: insertClip(state.tracks, clip) })),
@@ -225,6 +240,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
         effects: [],
         keyframes: {},
+        colorCorrection: { ...DEFAULT_COLOR_CORRECTION },
         text: { ...DEFAULT_TEXT_CONTENT, ...content },
       };
       runCommand({
@@ -584,6 +600,51 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
               ...c,
               keyframes: prevKeyframes,
               volume: prevVolume,
+            })),
+          })),
+      });
+    },
+
+    updateClipColorCorrection: (clipId, patch) => {
+      const found = findClip(get().tracks, clipId);
+      if (!found || found.track.locked) return;
+      const prevCC = found.clip.colorCorrection;
+      const nextCC = { ...prevCC, ...patch };
+      runCommand({
+        do: () =>
+          set((state) => ({
+            tracks: replaceClip(state.tracks, clipId, (c) => ({ ...c, colorCorrection: nextCC })),
+          })),
+        undo: () =>
+          set((state) => ({
+            tracks: replaceClip(state.tracks, clipId, (c) => ({ ...c, colorCorrection: prevCC })),
+          })),
+      });
+    },
+
+    clearColorCorrectionKeyframes: (clipId, property, bakedValue) => {
+      const found = findClip(get().tracks, clipId);
+      if (!found || found.track.locked) return;
+      const prevKeyframes = found.clip.keyframes;
+      const prevCC = found.clip.colorCorrection;
+      const nextKeyframes = { ...prevKeyframes };
+      delete nextKeyframes[property];
+      const nextCC = { ...prevCC, [property]: bakedValue };
+      runCommand({
+        do: () =>
+          set((state) => ({
+            tracks: replaceClip(state.tracks, clipId, (c) => ({
+              ...c,
+              keyframes: nextKeyframes,
+              colorCorrection: nextCC,
+            })),
+          })),
+        undo: () =>
+          set((state) => ({
+            tracks: replaceClip(state.tracks, clipId, (c) => ({
+              ...c,
+              keyframes: prevKeyframes,
+              colorCorrection: prevCC,
             })),
           })),
       });

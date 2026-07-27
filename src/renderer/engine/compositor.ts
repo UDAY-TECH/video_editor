@@ -1,6 +1,7 @@
 import type { Clip, Track, Transform, Transition } from '@shared/types';
 import { resolveTransformAtTime } from './keyframes';
 import { sortedClips } from './timelineMath';
+import { computeColorCorrectionAt, type ColorCorrectionValues } from './colorCorrection';
 
 export interface CompositorLayer {
   clip: Clip;
@@ -17,6 +18,11 @@ export interface CompositorLayer {
   // Present only for 'wipe' transitions - drawing code should clip to a
   // growing/shrinking rect instead of using `alpha` for these layers.
   wipe?: { revealingFromLeft: boolean; t: number };
+  // Resolved (keyframe-aware) color correction values, plus the clip's own
+  // LUT reference/intensity - drawing code applies these (Section 5.7).
+  colorCorrection: ColorCorrectionValues;
+  lutPath?: string;
+  lutIntensity: number;
 }
 
 const EPSILON = 1e-6;
@@ -44,6 +50,9 @@ function buildLayer(
     transform: resolveTransformAtTime(clip.transform, clip.keyframes, localTime),
     alpha,
     wipe,
+    colorCorrection: computeColorCorrectionAt(clip, localTime),
+    lutPath: clip.colorCorrection.lutPath,
+    lutIntensity: clip.colorCorrection.lutIntensity,
   };
 }
 

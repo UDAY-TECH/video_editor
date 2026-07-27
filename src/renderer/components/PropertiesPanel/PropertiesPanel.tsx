@@ -30,6 +30,21 @@ const PROPERTIES: PropertyConfig[] = [
   { key: 'opacity', label: 'Opacity', step: 0.01, min: 0, max: 1 },
 ];
 
+interface ColorPropertyConfig {
+  key: 'brightness' | 'contrast' | 'saturation' | 'exposure';
+  label: string;
+  step: number;
+  min?: number;
+  max?: number;
+}
+
+const COLOR_PROPERTIES: ColorPropertyConfig[] = [
+  { key: 'brightness', label: 'Brightness', step: 1, min: -100, max: 100 },
+  { key: 'contrast', label: 'Contrast', step: 1, min: -100, max: 100 },
+  { key: 'saturation', label: 'Saturation', step: 1, min: -100, max: 100 },
+  { key: 'exposure', label: 'Exposure', step: 0.1, min: -3, max: 3 },
+];
+
 const MINI_TIMELINE_WIDTH = 180;
 
 export function PropertiesPanel(): JSX.Element {
@@ -42,6 +57,8 @@ export function PropertiesPanel(): JSX.Element {
   const clearKeyframesForProperty = useTimelineStore((s) => s.clearKeyframesForProperty);
   const updateClipVolume = useTimelineStore((s) => s.updateClipVolume);
   const clearVolumeKeyframes = useTimelineStore((s) => s.clearVolumeKeyframes);
+  const updateClipColorCorrection = useTimelineStore((s) => s.updateClipColorCorrection);
+  const clearColorCorrectionKeyframes = useTimelineStore((s) => s.clearColorCorrectionKeyframes);
   const updateTextContent = useTimelineStore((s) => s.updateTextContent);
   const assets = useMediaBinStore((s) => s.assets);
 
@@ -62,6 +79,7 @@ export function PropertiesPanel(): JSX.Element {
   const localTime = Math.max(0, Math.min(playheadTime - clip.startTime, clip.duration));
   const asset = clip.mediaAssetId ? assets.find((a) => a.id === clip.mediaAssetId) : undefined;
   const hasAudio = !clip.text && (!asset || asset.type !== 'image');
+  const hasVisual = !clip.text && (!asset || asset.type !== 'audio');
 
   return (
     <div className="flex h-full flex-col bg-neutral-900 border-l border-neutral-800">
@@ -139,6 +157,51 @@ export function PropertiesPanel(): JSX.Element {
             }}
             onRemoveKeyframe={(time) => removeKeyframe(clip.id, 'volume', time)}
           />
+        )}
+        {hasVisual && (
+          <div className="space-y-3 pt-2 border-t border-neutral-800">
+            <span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+              Color Correction
+            </span>
+            {COLOR_PROPERTIES.map((prop) => (
+              <KeyframeablePropertyRow
+                key={prop.key}
+                label={prop.label}
+                step={prop.step}
+                min={prop.min}
+                max={prop.max}
+                baseValue={clip.colorCorrection[prop.key]}
+                keyframes={clip.keyframes[prop.key] ?? []}
+                localTime={localTime}
+                clipDuration={clip.duration}
+                disabled={track.locked}
+                onChange={(value) => {
+                  const keyframes = clip.keyframes[prop.key];
+                  if (keyframes && keyframes.length > 0) {
+                    setKeyframe(clip.id, prop.key, localTime, value);
+                  } else {
+                    updateClipColorCorrection(clip.id, { [prop.key]: value });
+                  }
+                }}
+                onToggleKeyframing={(currentValue) => {
+                  const keyframes = clip.keyframes[prop.key];
+                  if (keyframes && keyframes.length > 0) {
+                    clearColorCorrectionKeyframes(clip.id, prop.key, currentValue);
+                  } else {
+                    setKeyframe(clip.id, prop.key, localTime, currentValue);
+                  }
+                }}
+                onRemoveKeyframe={(time) => removeKeyframe(clip.id, prop.key, time)}
+              />
+            ))}
+            <LutSection
+              lutPath={clip.colorCorrection.lutPath}
+              lutIntensity={clip.colorCorrection.lutIntensity}
+              disabled={track.locked}
+              onSetLut={(lutPath) => updateClipColorCorrection(clip.id, { lutPath })}
+              onIntensityChange={(lutIntensity) => updateClipColorCorrection(clip.id, { lutIntensity })}
+            />
+          </div>
         )}
       </div>
     </div>
@@ -220,6 +283,71 @@ function KeyframeablePropertyRow({
               onClick={() => onRemoveKeyframe(kf.time)}
             />
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LutSection({
+  lutPath,
+  lutIntensity,
+  disabled,
+  onSetLut,
+  onIntensityChange,
+}: {
+  lutPath: string | undefined;
+  lutIntensity: number;
+  disabled: boolean;
+  onSetLut: (lutPath: string | undefined) => void;
+  onIntensityChange: (intensity: number) => void;
+}): JSX.Element {
+  const fileName = lutPath ? lutPath.split(/[\\/]/).pop() : null;
+
+  async function handleImport(): Promise<void> {
+    const path = await window.api.media.importLut();
+    if (path) onSetLut(path);
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-neutral-400 flex-1 truncate" title={lutPath}>
+          {fileName ?? 'No LUT'}
+        </span>
+        <button
+          className="px-1.5 py-0.5 rounded text-xs hover:bg-neutral-800 disabled:opacity-50"
+          disabled={disabled}
+          onClick={handleImport}
+        >
+          Import LUT...
+        </button>
+        {lutPath && (
+          <button
+            className="px-1.5 py-0.5 rounded text-xs hover:bg-neutral-800 disabled:opacity-50"
+            disabled={disabled}
+            onClick={() => onSetLut(undefined)}
+          >
+            Remove
+          </button>
+        )}
+      </div>
+      {lutPath && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-neutral-400 flex-1">LUT Intensity</span>
+          <input
+            type="number"
+            className="w-20 bg-neutral-800 rounded px-1.5 py-0.5 text-xs text-right disabled:opacity-50"
+            step={0.01}
+            min={0}
+            max={1}
+            value={lutIntensity}
+            disabled={disabled}
+            onChange={(e) => {
+              const value = parseFloat(e.target.value);
+              if (Number.isFinite(value)) onIntensityChange(value);
+            }}
+          />
         </div>
       )}
     </div>

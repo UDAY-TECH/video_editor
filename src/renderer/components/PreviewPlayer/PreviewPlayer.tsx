@@ -6,6 +6,9 @@ import { toMediaUrl } from '@shared/mediaUrl';
 import { computeCompositeFrame, type CompositorLayer } from '../../engine/compositor';
 import { getTimelineEnd } from '../../engine/timelineMath';
 import { computeEffectiveGain } from '../../engine/audioMix';
+import { buildCssFilterString } from '../../engine/colorCorrection';
+import { parseCubeLut, type ParsedLut } from '../../engine/lut';
+import { LutGlProcessor } from '../../engine/lutGl';
 import type { MediaAsset } from '@shared/types';
 
 const TEXT_ANIM_DURATION = 0.5;
@@ -37,6 +40,12 @@ function formatTime(seconds: number): string {
 // frame-accurate visual scrubbing), which is fundamentally incompatible with
 // continuous audio playback, so video-with-audio stays silent in preview
 // for now.
+//
+// Color correction (Phase 8, Section 5.7): brightness/contrast/saturation/
+// exposure are approximated via Canvas 2D's `filter`; an imported .cube LUT
+// is applied as a separate GPU shader pass (see engine/lutGl.ts) before that.
+// Both are preview approximations - accurate output happens via FFmpeg's
+// `eq`/`lut3d` filters at export time (Phase 9).
 export function PreviewPlayer(): JSX.Element {
   const tracks = useTimelineStore((s) => s.tracks);
   const playheadTime = useTimelineStore((s) => s.playheadTime);
@@ -65,6 +74,11 @@ export function PreviewPlayer(): JSX.Element {
   const audioPoolRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const audioSrcRef = useRef<Map<string, string>>(new Map());
   const activeAudioClipRef = useRef<Map<string, string | null>>(new Map());
+
+  const lutCacheRef = useRef<Map<string, ParsedLut>>(new Map());
+  const lutLoadingRef = useRef<Set<string>>(new Set());
+  const lutFailedRef = useRef<Set<string>>(new Set());
+  const lutProcessorRef = useRef<LutGlProcessor | null | undefined>(undefined);
 
   const rafRef = useRef<number | null>(null);
   const lastTickRef = useRef<number | null>(null);
@@ -222,6 +236,45 @@ export function PreviewPlayer(): JSX.Element {
     }
   }
 
+  function getLutProcessor(): LutGlProcessor | null {
+    if (lutProcessorRef.current !== undefined) return lutProcessorRef.current;
+    try {
+      lutProcessorRef.current = new LutGlProcessor();
+    } catch (err) {
+      console.warn('WebGL LUT preview unavailable:', err);
+      lutProcessorRef.current = null;
+    }
+    return lutProcessorRef.current;
+  }
+
+  // Fetches (via the same media:// protocol used for waveform JSON) and
+  // parses a .cube LUT the first time it's referenced, caching the result by
+  // path. Returns null (and kicks off the fetch) until it's loaded - the
+  // layer just renders ungraded for a frame or two, matching the existing
+  // "waveform takes a moment to appear" pattern. A failed fetch/parse is
+  // remembered too, so a bad file is attempted once rather than re-fetched
+  // and re-parsed on every draw() call (up to ~60/sec during playback).
+  function getLoadedLut(path: string): ParsedLut | null {
+    const cached = lutCacheRef.current.get(path);
+    if (cached) return cached;
+    if (lutFailedRef.current.has(path)) return null;
+    if (!lutLoadingRef.current.has(path)) {
+      lutLoadingRef.current.add(path);
+      fetch(toMediaUrl(path))
+        .then((res) => res.text())
+        .then((text) => {
+          lutCacheRef.current.set(path, parseCubeLut(text));
+          scheduleRedraw();
+        })
+        .catch((err) => {
+          console.warn(`Failed to load LUT ${path}:`, err);
+          lutFailedRef.current.add(path);
+        })
+        .finally(() => lutLoadingRef.current.delete(path));
+    }
+    return null;
+  }
+
   function getNaturalSize(mediaEl: HTMLVideoElement | HTMLImageElement): { width: number; height: number } | null {
     if (mediaEl instanceof HTMLVideoElement) {
       if (!mediaEl.videoWidth || !mediaEl.videoHeight) return null;
@@ -275,8 +328,29 @@ export function PreviewPlayer(): JSX.Element {
     const drawWidth = natural ? natural.width * fitScale : width;
     const drawHeight = natural ? natural.height * fitScale : height;
 
+    // Color correction (Section 5.7): a LUT (if any) is applied first via a
+    // GPU shader pass at the source's native resolution, producing a
+    // processed canvas that's used in place of the raw media element below;
+    // brightness/contrast/saturation/exposure are then applied via Canvas
+    // 2D's `filter`, which works on any drawImage source including that
+    // processed canvas.
+    let source: CanvasImageSource = mediaEl;
+    if (layer.lutPath && natural) {
+      const lut = getLoadedLut(layer.lutPath);
+      const processor = lut ? getLutProcessor() : null;
+      if (lut && processor) {
+        try {
+          source = processor.process(mediaEl, natural.width, natural.height, lut, layer.lutPath, layer.lutIntensity);
+        } catch (err) {
+          console.warn('LUT preview pass failed, falling back to ungraded source:', err);
+        }
+      }
+    }
+
     applyLayerTransform(ctx, layer, width, height, 1, 0);
-    ctx.drawImage(mediaEl, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+    ctx.filter = buildCssFilterString(layer.colorCorrection);
+    ctx.drawImage(source, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+    ctx.filter = 'none';
     ctx.restore();
   }
 

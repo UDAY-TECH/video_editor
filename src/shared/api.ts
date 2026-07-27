@@ -6,6 +6,8 @@ export interface MediaApi {
     asset: Pick<MediaAsset, 'id' | 'filePath' | 'type' | 'duration'>,
   ): Promise<string | null>;
   generateWaveform(asset: Pick<MediaAsset, 'id' | 'filePath' | 'type'>): Promise<string | null>;
+  // Opens a file dialog for a .cube LUT and returns its absolute path (null if canceled).
+  importLut(): Promise<string | null>;
 }
 
 export interface ProjectSaveResult {

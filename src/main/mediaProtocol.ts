@@ -17,6 +17,7 @@ const MIME_TYPES: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.json': 'application/json',
+  '.cube': 'text/plain',
 };
 
 function mimeTypeFor(filePath: string): string {

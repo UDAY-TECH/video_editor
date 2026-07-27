@@ -470,6 +470,66 @@ describe('updateClipVolume / clearVolumeKeyframes', () => {
   });
 });
 
+describe('updateClipColorCorrection / clearColorCorrectionKeyframes', () => {
+  it('patches a color correction property and is undoable', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+
+    useTimelineStore.getState().updateClipColorCorrection(clipId, { brightness: 25 });
+    expect(firstClip()!.colorCorrection.brightness).toBe(25);
+    expect(firstClip()!.colorCorrection.contrast).toBe(0);
+
+    useTimelineStore.getState().undo();
+    expect(firstClip()!.colorCorrection.brightness).toBe(0);
+  });
+
+  it('is a no-op on a locked track', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+    useTimelineStore.getState().toggleTrackLock('v1');
+
+    useTimelineStore.getState().updateClipColorCorrection(clipId, { brightness: 25 });
+    expect(firstClip()!.colorCorrection.brightness).toBe(0);
+  });
+
+  it('sets and clears a LUT reference via a plain patch', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+
+    useTimelineStore.getState().updateClipColorCorrection(clipId, { lutPath: 'C:\\luts\\a.cube' });
+    expect(firstClip()!.colorCorrection.lutPath).toBe('C:\\luts\\a.cube');
+
+    useTimelineStore.getState().updateClipColorCorrection(clipId, { lutPath: undefined });
+    expect(firstClip()!.colorCorrection.lutPath).toBeUndefined();
+  });
+
+  it('keyframes brightness via the generic setKeyframe/removeKeyframe actions', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+
+    useTimelineStore.getState().setKeyframe(clipId, 'brightness', 2, 40);
+    expect(firstClip()!.keyframes.brightness).toEqual([{ time: 2, value: 40, easing: 'linear' }]);
+
+    useTimelineStore.getState().removeKeyframe(clipId, 'brightness', 2);
+    expect(firstClip()!.keyframes.brightness).toBeUndefined();
+  });
+
+  it('clearColorCorrectionKeyframes removes keyframes and bakes a static value, and is undoable', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+    useTimelineStore.getState().setKeyframe(clipId, 'brightness', 1, 0);
+    useTimelineStore.getState().setKeyframe(clipId, 'brightness', 5, 100);
+
+    useTimelineStore.getState().clearColorCorrectionKeyframes(clipId, 'brightness', 60);
+    expect(firstClip()!.keyframes.brightness).toBeUndefined();
+    expect(firstClip()!.colorCorrection.brightness).toBe(60);
+
+    useTimelineStore.getState().undo();
+    expect(firstClip()!.keyframes.brightness).toHaveLength(2);
+    expect(firstClip()!.colorCorrection.brightness).toBe(0);
+  });
+});
+
 describe('toggleTrackSolo', () => {
   it('toggles solo and is undoable', () => {
     useTimelineStore.getState().toggleTrackSolo('v1');

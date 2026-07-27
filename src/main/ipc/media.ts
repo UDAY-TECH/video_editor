@@ -115,4 +115,13 @@ export function registerMediaIpc(): void {
       }
     },
   );
+
+  ipcMain.handle('media:importLut', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'LUT files', extensions: ['cube'] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
 }

@@ -73,6 +73,7 @@ describe('migrateProjectFile', () => {
             transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
             effects: [],
             keyframes: {},
+            colorCorrection: { brightness: 0, contrast: 0, saturation: 0, exposure: 0, lutIntensity: 1 },
           },
         ],
       },
@@ -116,6 +117,37 @@ describe('migrateProjectFile', () => {
       },
     ];
     expect(() => migrateProjectFile(project)).toThrow(/\.volume/);
+  });
+
+  it('rejects a clip missing colorCorrection', () => {
+    const project = validProject();
+    project.tracks = [
+      {
+        id: 't1',
+        type: 'video',
+        index: 0,
+        muted: false,
+        solo: false,
+        locked: false,
+        clips: [
+          {
+            id: 'c1',
+            mediaAssetId: 'a1',
+            trackId: 't1',
+            startTime: 0,
+            duration: 5,
+            sourceIn: 0,
+            sourceOut: 5,
+            speed: 1,
+            volume: 1,
+            transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
+            effects: [],
+            keyframes: {},
+          },
+        ],
+      },
+    ];
+    expect(() => migrateProjectFile(project)).toThrow(/\.colorCorrection/);
   });
 
   it('rejects a track whose clips are missing required fields', () => {
@@ -173,6 +205,91 @@ describe('migrateProjectFile', () => {
     expect(result.tracks[0].clips[0].volume).toBe(1);
   });
 
+  it('migrates a 1.2.0 project file forward, injecting default colorCorrection', () => {
+    const project = {
+      ...validProject(),
+      version: '1.2.0',
+      tracks: [
+        {
+          id: 't1',
+          type: 'video',
+          index: 0,
+          muted: false,
+          solo: false,
+          locked: false,
+          clips: [
+            {
+              id: 'c1',
+              mediaAssetId: 'a1',
+              trackId: 't1',
+              startTime: 0,
+              duration: 5,
+              sourceIn: 0,
+              sourceOut: 5,
+              speed: 1,
+              volume: 1,
+              transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
+              effects: [],
+              keyframes: {},
+            },
+          ],
+        },
+      ],
+    };
+    const result = migrateProjectFile(project);
+    expect(result.version).toBe(CURRENT_PROJECT_VERSION);
+    expect(result.tracks[0].clips[0].colorCorrection).toEqual({
+      brightness: 0,
+      contrast: 0,
+      saturation: 0,
+      exposure: 0,
+      lutIntensity: 1,
+    });
+  });
+
+  it('preserves an existing lutPath when migrating a clip that already has a partial colorCorrection', () => {
+    const project = {
+      ...validProject(),
+      version: '1.2.0',
+      tracks: [
+        {
+          id: 't1',
+          type: 'video',
+          index: 0,
+          muted: false,
+          solo: false,
+          locked: false,
+          clips: [
+            {
+              id: 'c1',
+              mediaAssetId: 'a1',
+              trackId: 't1',
+              startTime: 0,
+              duration: 5,
+              sourceIn: 0,
+              sourceOut: 5,
+              speed: 1,
+              volume: 1,
+              transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
+              effects: [],
+              keyframes: {},
+              colorCorrection: { lutPath: 'C:\\luts\\existing.cube' },
+            },
+          ],
+        },
+      ],
+    };
+    const result = migrateProjectFile(project);
+    expect(result.tracks[0].clips[0].colorCorrection).toEqual({
+      brightness: 0,
+      contrast: 0,
+      saturation: 0,
+      exposure: 0,
+      lutIntensity: 1,
+      lutPath: 'C:\\luts\\existing.cube',
+    });
+  });
+
   it('accepts a text clip that has no mediaAssetId', () => {
     const project = validProject();
     project.tracks = [
@@ -196,6 +313,7 @@ describe('migrateProjectFile', () => {
             transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
             effects: [],
             keyframes: {},
+            colorCorrection: { brightness: 0, contrast: 0, saturation: 0, exposure: 0, lutIntensity: 1 },
             text: {
               content: 'Hello',
               fontFamily: 'Arial',
@@ -235,6 +353,7 @@ describe('migrateProjectFile', () => {
             transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
             effects: [],
             keyframes: {},
+            colorCorrection: { brightness: 0, contrast: 0, saturation: 0, exposure: 0, lutIntensity: 1 },
           },
         ],
       },
@@ -265,6 +384,7 @@ describe('migrateProjectFile', () => {
             transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
             effects: [],
             keyframes: {},
+            colorCorrection: { brightness: 0, contrast: 0, saturation: 0, exposure: 0, lutIntensity: 1 },
             text: { content: 'Hello' },
           },
         ],

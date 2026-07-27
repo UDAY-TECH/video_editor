@@ -42,6 +42,7 @@ describe('writeProjectFile / readProjectFile', () => {
               transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
               effects: [],
               keyframes: {},
+              colorCorrection: { brightness: 0, contrast: 0, saturation: 0, exposure: 0, lutIntensity: 1 },
             },
           ],
         },

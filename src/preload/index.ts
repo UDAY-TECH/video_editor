@@ -6,6 +6,7 @@ const api: Api = {
     import: (paths) => ipcRenderer.invoke('media:import', paths),
     generateThumbnail: (asset) => ipcRenderer.invoke('media:generateThumbnail', asset),
     generateWaveform: (asset) => ipcRenderer.invoke('media:generateWaveform', asset),
+    importLut: () => ipcRenderer.invoke('media:importLut'),
   },
   project: {
     save: (project, filePath) => ipcRenderer.invoke('project:save', project, filePath),

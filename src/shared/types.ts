@@ -62,6 +62,9 @@ export interface Clip {
   transform: Transform;
   effects: Effect[];
   keyframes: Record<string, Keyframe[]>;
+  // Brightness/contrast/saturation/exposure are keyframeable via
+  // keyframes['brightness'] etc, same convention as volume above.
+  colorCorrection: ColorCorrection;
   transitionIn?: Transition;
   transitionOut?: Transition;
   // Present only for text clips. Text clips have no backing MediaAsset —
@@ -87,6 +90,20 @@ export interface Transform {
   scale: number;
   rotation: number;
   opacity: number;
+}
+
+// Section 5.7: all four numeric fields are additive around a neutral 0 (no
+// change), matching the FFmpeg `eq` filter's own neutral convention that the
+// Phase 9 export filter chain will build on. Live preview approximates this
+// via a Canvas 2D `filter` string (see renderer/engine/colorCorrection.ts).
+export interface ColorCorrection {
+  brightness: number; // -100..100
+  contrast: number; // -100..100
+  saturation: number; // -100..100
+  exposure: number; // -3..3 stops
+  // Absolute path to an imported .cube file; absent until the user imports one.
+  lutPath?: string;
+  lutIntensity: number; // 0..1 blend between ungraded and fully-graded, default 1
 }
 
 export interface Effect {

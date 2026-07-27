@@ -16,6 +16,7 @@ function makeClip(overrides: Partial<Clip> = {}): Clip {
     transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 },
     effects: [],
     keyframes: {},
+    colorCorrection: { brightness: 0, contrast: 0, saturation: 0, exposure: 0, lutIntensity: 1 },
     ...overrides,
   };
 }
@@ -171,6 +172,32 @@ describe('computeTrackFrame', () => {
     const track = makeTrack([clip]);
     const layers = computeTrackFrame(track, 5);
     expect(layers[0].transform.opacity).toBeCloseTo(0.5);
+  });
+
+  it('resolves keyframed color correction properties at the clip-local time', () => {
+    const clip = makeClip({
+      startTime: 0,
+      duration: 10,
+      keyframes: {
+        brightness: [
+          { time: 0, value: 0, easing: 'linear' },
+          { time: 10, value: 100, easing: 'linear' },
+        ],
+      },
+    });
+    const track = makeTrack([clip]);
+    const layers = computeTrackFrame(track, 5);
+    expect(layers[0].colorCorrection.brightness).toBeCloseTo(50);
+  });
+
+  it('passes through the clip\'s LUT reference and intensity', () => {
+    const clip = makeClip({
+      colorCorrection: { brightness: 0, contrast: 0, saturation: 0, exposure: 0, lutPath: 'C:\\luts\\a.cube', lutIntensity: 0.5 },
+    });
+    const track = makeTrack([clip]);
+    const layers = computeTrackFrame(track, 5);
+    expect(layers[0].lutPath).toBe('C:\\luts\\a.cube');
+    expect(layers[0].lutIntensity).toBe(0.5);
   });
 
   it('exposes localTime on the returned layer', () => {

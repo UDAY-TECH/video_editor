@@ -51,6 +51,15 @@ function validateTextContent(value: unknown, prefix: string): void {
   requireString(text.exitAnimation, `${prefix}.text.exitAnimation`);
 }
 
+function validateColorCorrection(value: unknown, prefix: string): void {
+  const cc = requireObject(value, `${prefix}.colorCorrection`);
+  requireNumber(cc.brightness, `${prefix}.colorCorrection.brightness`);
+  requireNumber(cc.contrast, `${prefix}.colorCorrection.contrast`);
+  requireNumber(cc.saturation, `${prefix}.colorCorrection.saturation`);
+  requireNumber(cc.exposure, `${prefix}.colorCorrection.exposure`);
+  requireNumber(cc.lutIntensity, `${prefix}.colorCorrection.lutIntensity`);
+}
+
 function validateClip(value: unknown, trackIndex: number, clipIndex: number): void {
   const prefix = `tracks[${trackIndex}].clips[${clipIndex}]`;
   const clip = requireObject(value, prefix);
@@ -64,6 +73,7 @@ function validateClip(value: unknown, trackIndex: number, clipIndex: number): vo
   requireObject(clip.transform, `${prefix}.transform`);
   requireArray(clip.effects, `${prefix}.effects`);
   requireObject(clip.keyframes, `${prefix}.keyframes`);
+  validateColorCorrection(clip.colorCorrection, prefix);
 
   const hasMediaAssetId = typeof clip.mediaAssetId === 'string';
   const hasText = clip.text !== undefined;
@@ -143,6 +153,36 @@ function migrateToCurrentVersion(raw: Record<string, unknown>): Record<string, u
     });
     migrated = { ...migrated, tracks: migratedTracks, version: '1.2.0' };
     version = '1.2.0';
+  }
+
+  if (version === '1.2.0') {
+    // 1.2.0 -> 1.3.0: added Clip.colorCorrection (Section 5.7). Brightness/
+    // contrast/saturation/exposure default to 0 (no change); lutIntensity
+    // defaults to 1 (full strength once a LUT is imported); lutPath stays
+    // absent until then.
+    const tracks = Array.isArray(migrated.tracks) ? migrated.tracks : [];
+    const migratedTracks = tracks.map((rawTrack) => {
+      const track = isPlainObject(rawTrack) ? rawTrack : {};
+      const clips = Array.isArray(track.clips) ? track.clips : [];
+      const migratedClips = clips.map((rawClip) => {
+        const clip = isPlainObject(rawClip) ? rawClip : {};
+        const existingCC = isPlainObject(clip.colorCorrection) ? clip.colorCorrection : {};
+        return {
+          ...clip,
+          colorCorrection: {
+            brightness: typeof existingCC.brightness === 'number' ? existingCC.brightness : 0,
+            contrast: typeof existingCC.contrast === 'number' ? existingCC.contrast : 0,
+            saturation: typeof existingCC.saturation === 'number' ? existingCC.saturation : 0,
+            exposure: typeof existingCC.exposure === 'number' ? existingCC.exposure : 0,
+            lutIntensity: typeof existingCC.lutIntensity === 'number' ? existingCC.lutIntensity : 1,
+            ...(typeof existingCC.lutPath === 'string' ? { lutPath: existingCC.lutPath } : {}),
+          },
+        };
+      });
+      return { ...track, clips: migratedClips };
+    });
+    migrated = { ...migrated, tracks: migratedTracks, version: '1.3.0' };
+    version = '1.3.0';
   }
 
   if (version === CURRENT_PROJECT_VERSION) return migrated;
