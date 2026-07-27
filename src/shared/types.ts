@@ -129,3 +129,19 @@ export interface ProgressEvent {
   percent: number;
   message: string;
 }
+
+// Section 5.8/5.9. Not part of ProjectFile - a one-off render configuration
+// chosen at export time, not persisted project state.
+export type ExportContainer = 'mp4' | 'mov' | 'webm';
+export type ExportCodec = 'h264' | 'h265' | 'vp9';
+
+export type ExportQuality = { mode: 'crf'; value: number } | { mode: 'bitrate'; kbps: number };
+
+export interface ExportSettings {
+  outputPath: string;
+  container: ExportContainer;
+  codec: ExportCodec;
+  resolution: { width: number; height: number };
+  fps: number;
+  quality: ExportQuality;
+}

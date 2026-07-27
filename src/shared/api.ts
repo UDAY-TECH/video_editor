@@ -1,4 +1,4 @@
-import type { MediaAsset, ProjectFile } from './types';
+import type { ExportContainer, ExportSettings, MediaAsset, ProgressEvent, ProjectFile } from './types';
 
 export interface MediaApi {
   import(paths?: string[]): Promise<MediaAsset[]>;
@@ -31,8 +31,33 @@ export interface AppApi {
   confirmCloseResult(shouldClose: boolean): void;
 }
 
+export interface ExportStartResult {
+  jobId: string;
+}
+
+export interface ExportCompleteEvent {
+  jobId: string;
+  outputPath: string;
+}
+
+export interface ExportErrorEvent {
+  jobId: string;
+  message: string;
+}
+
+export interface ExportApi {
+  // Opens a native save dialog filtered to the given container's extension.
+  pickOutputPath(defaultName: string, container: ExportContainer): Promise<string | null>;
+  start(project: ProjectFile, settings: ExportSettings): Promise<ExportStartResult>;
+  cancel(jobId: string): void;
+  onProgress(callback: (event: ProgressEvent) => void): () => void;
+  onComplete(callback: (event: ExportCompleteEvent) => void): () => void;
+  onError(callback: (event: ExportErrorEvent) => void): () => void;
+}
+
 export interface Api {
   media: MediaApi;
   project: ProjectApi;
   app: AppApi;
+  export: ExportApi;
 }

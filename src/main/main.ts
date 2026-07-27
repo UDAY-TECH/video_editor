@@ -3,6 +3,7 @@ import { join } from 'path';
 import { handleMediaRequest } from './mediaProtocol';
 import { registerMediaIpc } from './ipc/media';
 import { registerProjectIpc } from './ipc/project';
+import { registerExportIpc, cancelAllExportJobs } from './ipc/export';
 
 // Window ids that have already been confirmed for closing (either no unsaved
 // changes, or the user chose to discard them), so the 'close' guard below
@@ -66,11 +67,15 @@ app.whenReady().then(() => {
 
   registerMediaIpc();
   registerProjectIpc();
+  registerExportIpc();
 
   ipcMain.on('app:confirmCloseResult', (event, shouldClose: boolean) => {
     if (!shouldClose) return;
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return;
+    // The close is definitely proceeding past this point - stop any
+    // in-progress export now rather than orphaning its ffmpeg process.
+    cancelAllExportJobs();
     confirmedCloseWindowIds.add(win.id);
     win.close();
   });
