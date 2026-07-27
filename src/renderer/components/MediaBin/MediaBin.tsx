@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useMediaBinStore } from '../../state/mediaBinStore';
 import { toMediaUrl } from '@shared/mediaUrl';
 import type { MediaAsset } from '@shared/types';
@@ -92,6 +93,9 @@ function MediaBinItem({
   onSelect: () => void;
   onRemove: () => void;
 }): JSX.Element {
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  useEffect(() => setThumbnailFailed(false), [asset.thumbnailPath]);
+
   return (
     <div
       className={`flex items-center gap-2 p-1.5 rounded cursor-pointer group ${
@@ -105,8 +109,13 @@ function MediaBinItem({
       }}
     >
       <div className="w-14 h-9 shrink-0 bg-neutral-950 rounded overflow-hidden flex items-center justify-center text-[10px] text-neutral-600">
-        {asset.thumbnailPath ? (
-          <img src={toMediaUrl(asset.thumbnailPath)} alt="" className="w-full h-full object-cover" />
+        {asset.thumbnailPath && !thumbnailFailed ? (
+          <img
+            src={toMediaUrl(asset.thumbnailPath)}
+            alt=""
+            className="w-full h-full object-cover"
+            onError={() => setThumbnailFailed(true)}
+          />
         ) : (
           asset.type.toUpperCase()
         )}

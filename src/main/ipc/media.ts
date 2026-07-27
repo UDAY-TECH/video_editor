@@ -1,7 +1,7 @@
 import { ipcMain, dialog, app } from 'electron';
 import { randomUUID } from 'crypto';
 import { extname, join } from 'path';
-import { mkdir } from 'fs/promises';
+import { access, mkdir } from 'fs/promises';
 import { runProbe, parseProbeOutput } from '../ffmpeg/probe';
 import { generateThumbnail } from '../ffmpeg/thumbnail';
 import type { MediaAsset } from '../../shared/types';
@@ -63,8 +63,15 @@ export function registerMediaIpc(): void {
 
       await mkdir(thumbnailDir(), { recursive: true });
       const outputPath = join(thumbnailDir(), `${asset.id}.jpg`);
-      const seek = asset.type === 'video' ? Math.min(1, asset.duration / 2) : undefined;
 
+      try {
+        await access(outputPath);
+        return outputPath;
+      } catch {
+        // Doesn't exist yet - fall through and generate it.
+      }
+
+      const seek = asset.type === 'video' ? Math.min(1, asset.duration / 2) : undefined;
       try {
         await generateThumbnail(asset.filePath, outputPath, seek);
         return outputPath;

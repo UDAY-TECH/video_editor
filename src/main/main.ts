@@ -1,7 +1,13 @@
-import { app, BrowserWindow, shell, protocol } from 'electron';
+import { app, BrowserWindow, shell, protocol, ipcMain } from 'electron';
 import { join } from 'path';
 import { handleMediaRequest } from './mediaProtocol';
 import { registerMediaIpc } from './ipc/media';
+import { registerProjectIpc } from './ipc/project';
+
+// Window ids that have already been confirmed for closing (either no unsaved
+// changes, or the user chose to discard them), so the 'close' guard below
+// doesn't re-prompt on the resulting programmatic win.close() call.
+const confirmedCloseWindowIds = new Set<number>();
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -37,6 +43,12 @@ function createMainWindow(): void {
     mainWindow.show();
   });
 
+  mainWindow.on('close', (event) => {
+    if (confirmedCloseWindowIds.has(mainWindow.id)) return;
+    event.preventDefault();
+    mainWindow.webContents.send('app:checkUnsavedBeforeClose');
+  });
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
     return { action: 'deny' };
@@ -53,6 +65,16 @@ app.whenReady().then(() => {
   protocol.handle('media', handleMediaRequest);
 
   registerMediaIpc();
+  registerProjectIpc();
+
+  ipcMain.on('app:confirmCloseResult', (event, shouldClose: boolean) => {
+    if (!shouldClose) return;
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    confirmedCloseWindowIds.add(win.id);
+    win.close();
+  });
+
   createMainWindow();
 
   app.on('activate', () => {

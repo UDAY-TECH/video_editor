@@ -25,7 +25,7 @@ function loadSnapping(): boolean {
   return raw === null ? true : raw === 'true';
 }
 
-function createDefaultTracks(): Track[] {
+export function createDefaultTracks(): Track[] {
   return [
     { id: crypto.randomUUID(), type: 'video', index: 0, muted: false, locked: false, clips: [] },
     { id: crypto.randomUUID(), type: 'video', index: 1, muted: false, locked: false, clips: [] },
@@ -82,6 +82,7 @@ interface TimelineState {
   setZoom: (zoom: number) => void;
   toggleSnapping: () => void;
 
+  loadTracks: (tracks: Track[]) => void;
   addTrack: (type: 'video' | 'audio') => void;
   addClip: (trackId: string, asset: MediaAsset, startTime: number) => boolean;
   moveClip: (clipId: string, trackId: string, startTime: number) => boolean;
@@ -126,6 +127,9 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         if (typeof localStorage !== 'undefined') localStorage.setItem(SNAP_STORAGE_KEY, String(next));
         return { snappingEnabled: next };
       }),
+
+    loadTracks: (tracks) =>
+      set({ tracks, selectedClipId: null, playheadTime: 0, past: [], future: [] }),
 
     addTrack: (type) => {
       const sameType = get().tracks.filter((t) => t.type === type);
