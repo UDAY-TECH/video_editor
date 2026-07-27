@@ -98,6 +98,11 @@ function MediaBinItem({
         selected ? 'bg-neutral-700' : 'hover:bg-neutral-800'
       }`}
       onClick={onSelect}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('application/x-media-asset-id', asset.id);
+        e.dataTransfer.effectAllowed = 'copy';
+      }}
     >
       <div className="w-14 h-9 shrink-0 bg-neutral-950 rounded overflow-hidden flex items-center justify-center text-[10px] text-neutral-600">
         {asset.thumbnailPath ? (
