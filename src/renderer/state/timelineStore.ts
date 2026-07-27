@@ -1,6 +1,8 @@
 import { create } from 'zustand';
-import type { Clip, MediaAsset, Track } from '@shared/types';
+import type { Clip, Keyframe, MediaAsset, Track, Transform } from '@shared/types';
 import { hasOverlap } from '../engine/timelineMath';
+
+const KEYFRAME_TIME_EPSILON = 1e-6;
 
 const DEFAULT_ZOOM = 50;
 const DEFAULT_IMAGE_DURATION = 5;
@@ -92,6 +94,17 @@ interface TimelineState {
   removeClip: (clipId: string, mode: 'lift' | 'ripple') => void;
   toggleTrackMute: (trackId: string) => void;
   toggleTrackLock: (trackId: string) => void;
+
+  updateClipTransform: (clipId: string, patch: Partial<Transform>) => void;
+  setKeyframe: (
+    clipId: string,
+    property: string,
+    time: number,
+    value: number,
+    easing?: Keyframe['easing'],
+  ) => void;
+  removeKeyframe: (clipId: string, property: string, time: number) => void;
+  clearKeyframesForProperty: (clipId: string, property: string, bakedValue: number) => void;
 
   undo: () => void;
   redo: () => void;
@@ -354,6 +367,92 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         undo: () =>
           set((state) => ({
             tracks: state.tracks.map((t) => (t.id === trackId ? { ...t, locked: prevLocked } : t)),
+          })),
+      });
+    },
+
+    updateClipTransform: (clipId, patch) => {
+      const found = findClip(get().tracks, clipId);
+      if (!found || found.track.locked) return;
+      const prevTransform = found.clip.transform;
+      const nextTransform = { ...prevTransform, ...patch };
+      runCommand({
+        do: () =>
+          set((state) => ({
+            tracks: replaceClip(state.tracks, clipId, (c) => ({ ...c, transform: nextTransform })),
+          })),
+        undo: () =>
+          set((state) => ({
+            tracks: replaceClip(state.tracks, clipId, (c) => ({ ...c, transform: prevTransform })),
+          })),
+      });
+    },
+
+    setKeyframe: (clipId, property, time, value, easing = 'linear') => {
+      const found = findClip(get().tracks, clipId);
+      if (!found || found.track.locked) return;
+      const prevKeyframes = found.clip.keyframes;
+      const existing = prevKeyframes[property] ?? [];
+      const withoutAtTime = existing.filter((k) => Math.abs(k.time - time) > KEYFRAME_TIME_EPSILON);
+      const nextForProperty = [...withoutAtTime, { time, value, easing }].sort((a, b) => a.time - b.time);
+      const nextKeyframes = { ...prevKeyframes, [property]: nextForProperty };
+      runCommand({
+        do: () =>
+          set((state) => ({
+            tracks: replaceClip(state.tracks, clipId, (c) => ({ ...c, keyframes: nextKeyframes })),
+          })),
+        undo: () =>
+          set((state) => ({
+            tracks: replaceClip(state.tracks, clipId, (c) => ({ ...c, keyframes: prevKeyframes })),
+          })),
+      });
+    },
+
+    removeKeyframe: (clipId, property, time) => {
+      const found = findClip(get().tracks, clipId);
+      if (!found || found.track.locked) return;
+      const prevKeyframes = found.clip.keyframes;
+      const existing = prevKeyframes[property] ?? [];
+      const nextForProperty = existing.filter((k) => Math.abs(k.time - time) > KEYFRAME_TIME_EPSILON);
+      const nextKeyframes = { ...prevKeyframes };
+      if (nextForProperty.length === 0) delete nextKeyframes[property];
+      else nextKeyframes[property] = nextForProperty;
+      runCommand({
+        do: () =>
+          set((state) => ({
+            tracks: replaceClip(state.tracks, clipId, (c) => ({ ...c, keyframes: nextKeyframes })),
+          })),
+        undo: () =>
+          set((state) => ({
+            tracks: replaceClip(state.tracks, clipId, (c) => ({ ...c, keyframes: prevKeyframes })),
+          })),
+      });
+    },
+
+    clearKeyframesForProperty: (clipId, property, bakedValue) => {
+      const found = findClip(get().tracks, clipId);
+      if (!found || found.track.locked) return;
+      const prevKeyframes = found.clip.keyframes;
+      const prevTransform = found.clip.transform;
+      const nextKeyframes = { ...prevKeyframes };
+      delete nextKeyframes[property];
+      const nextTransform = { ...prevTransform, [property]: bakedValue };
+      runCommand({
+        do: () =>
+          set((state) => ({
+            tracks: replaceClip(state.tracks, clipId, (c) => ({
+              ...c,
+              keyframes: nextKeyframes,
+              transform: nextTransform,
+            })),
+          })),
+        undo: () =>
+          set((state) => ({
+            tracks: replaceClip(state.tracks, clipId, (c) => ({
+              ...c,
+              keyframes: prevKeyframes,
+              transform: prevTransform,
+            })),
           })),
       });
     },

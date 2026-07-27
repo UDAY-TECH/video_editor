@@ -249,3 +249,100 @@ describe('track mute/lock', () => {
     expect(useTimelineStore.getState().tracks.find((t) => t.id === 'v1')!.locked).toBe(false);
   });
 });
+
+describe('updateClipTransform', () => {
+  it('patches the transform and is undoable', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+
+    useTimelineStore.getState().updateClipTransform(clipId, { x: 50, opacity: 0.5 });
+    expect(firstClip()!.transform.x).toBe(50);
+    expect(firstClip()!.transform.opacity).toBe(0.5);
+    expect(firstClip()!.transform.y).toBe(0);
+
+    useTimelineStore.getState().undo();
+    expect(firstClip()!.transform.x).toBe(0);
+    expect(firstClip()!.transform.opacity).toBe(1);
+  });
+
+  it('is a no-op on a locked track', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+    useTimelineStore.getState().toggleTrackLock('v1');
+
+    useTimelineStore.getState().updateClipTransform(clipId, { x: 999 });
+    expect(firstClip()!.transform.x).toBe(0);
+  });
+});
+
+describe('setKeyframe / removeKeyframe / clearKeyframesForProperty', () => {
+  it('adds a keyframe and is undoable', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+
+    useTimelineStore.getState().setKeyframe(clipId, 'opacity', 2, 0.5, 'easeIn');
+    expect(firstClip()!.keyframes.opacity).toEqual([{ time: 2, value: 0.5, easing: 'easeIn' }]);
+
+    useTimelineStore.getState().undo();
+    expect(firstClip()!.keyframes.opacity).toBeUndefined();
+  });
+
+  it('replaces an existing keyframe at (nearly) the same time instead of duplicating it', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+
+    useTimelineStore.getState().setKeyframe(clipId, 'opacity', 2, 0.5);
+    useTimelineStore.getState().setKeyframe(clipId, 'opacity', 2, 0.9);
+
+    expect(firstClip()!.keyframes.opacity).toHaveLength(1);
+    expect(firstClip()!.keyframes.opacity[0].value).toBe(0.9);
+  });
+
+  it('keeps keyframes sorted by time', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+
+    useTimelineStore.getState().setKeyframe(clipId, 'opacity', 5, 1);
+    useTimelineStore.getState().setKeyframe(clipId, 'opacity', 1, 0);
+
+    expect(firstClip()!.keyframes.opacity.map((k) => k.time)).toEqual([1, 5]);
+  });
+
+  it('removes a single keyframe and is undoable', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+    useTimelineStore.getState().setKeyframe(clipId, 'opacity', 1, 0);
+    useTimelineStore.getState().setKeyframe(clipId, 'opacity', 5, 1);
+
+    useTimelineStore.getState().removeKeyframe(clipId, 'opacity', 1);
+    expect(firstClip()!.keyframes.opacity).toHaveLength(1);
+    expect(firstClip()!.keyframes.opacity[0].time).toBe(5);
+
+    useTimelineStore.getState().undo();
+    expect(firstClip()!.keyframes.opacity).toHaveLength(2);
+  });
+
+  it('deletes the property entry entirely once its last keyframe is removed', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+    useTimelineStore.getState().setKeyframe(clipId, 'opacity', 1, 0);
+
+    useTimelineStore.getState().removeKeyframe(clipId, 'opacity', 1);
+    expect(firstClip()!.keyframes.opacity).toBeUndefined();
+  });
+
+  it('clearKeyframesForProperty removes all keyframes and bakes a static value, and is undoable', () => {
+    useTimelineStore.getState().addClip('v1', asset, 0);
+    const clipId = firstClip()!.id;
+    useTimelineStore.getState().setKeyframe(clipId, 'opacity', 1, 0);
+    useTimelineStore.getState().setKeyframe(clipId, 'opacity', 5, 1);
+
+    useTimelineStore.getState().clearKeyframesForProperty(clipId, 'opacity', 0.75);
+    expect(firstClip()!.keyframes.opacity).toBeUndefined();
+    expect(firstClip()!.transform.opacity).toBe(0.75);
+
+    useTimelineStore.getState().undo();
+    expect(firstClip()!.keyframes.opacity).toHaveLength(2);
+    expect(firstClip()!.transform.opacity).toBe(1);
+  });
+});

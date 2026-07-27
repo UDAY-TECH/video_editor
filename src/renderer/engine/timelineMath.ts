@@ -16,6 +16,16 @@ export function sortedClips(track: Track): Clip[] {
   return [...track.clips].sort((a, b) => a.startTime - b.startTime);
 }
 
+export function getTimelineEnd(tracks: Track[]): number {
+  let max = 0;
+  for (const track of tracks) {
+    for (const clip of track.clips) {
+      max = Math.max(max, clipEnd(clip));
+    }
+  }
+  return max;
+}
+
 export function hasOverlap(
   track: Track,
   excludeClipId: string | null,

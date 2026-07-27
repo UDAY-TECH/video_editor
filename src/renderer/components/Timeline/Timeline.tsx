@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTimelineStore, findClip } from '../../state/timelineStore';
 import { useMediaBinStore } from '../../state/mediaBinStore';
-import { pxToTime, timeToPx, collectSnapPoints, snapTime, clipEnd } from '../../engine/timelineMath';
+import { pxToTime, timeToPx, collectSnapPoints, snapTime, getTimelineEnd } from '../../engine/timelineMath';
 import { ClipBlock } from './ClipBlock';
 import type { Clip } from '@shared/types';
 
@@ -265,11 +265,7 @@ export function Timeline(): JSX.Element {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo, splitClipAt, removeClip]);
 
-  const maxClipEnd = tracks.reduce((max, track) => {
-    const trackMax = track.clips.reduce((m, c) => Math.max(m, clipEnd(c)), 0);
-    return Math.max(max, trackMax);
-  }, 0);
-  const contentSeconds = Math.max(MIN_CONTENT_SECONDS, maxClipEnd + CONTENT_PADDING_SECONDS);
+  const contentSeconds = Math.max(MIN_CONTENT_SECONDS, getTimelineEnd(tracks) + CONTENT_PADDING_SECONDS);
   const contentWidth = timeToPx(contentSeconds, zoom);
 
   const actionsDisabled = !selectedClipId || selectedTrackLocked;
