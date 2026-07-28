@@ -7,6 +7,19 @@ const api: Api = {
     generateThumbnail: (asset) => ipcRenderer.invoke('media:generateThumbnail', asset),
     generateWaveform: (asset) => ipcRenderer.invoke('media:generateWaveform', asset),
     importLut: () => ipcRenderer.invoke('media:importLut'),
+    generateProxy: (asset) => ipcRenderer.invoke('media:generateProxy', asset),
+    onProxyComplete: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: Parameters<typeof callback>[0]): void =>
+        callback(payload);
+      ipcRenderer.on('media:proxyComplete', listener);
+      return () => ipcRenderer.removeListener('media:proxyComplete', listener);
+    },
+    onProxyError: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: Parameters<typeof callback>[0]): void =>
+        callback(payload);
+      ipcRenderer.on('media:proxyError', listener);
+      return () => ipcRenderer.removeListener('media:proxyError', listener);
+    },
   },
   project: {
     save: (project, filePath) => ipcRenderer.invoke('project:save', project, filePath),

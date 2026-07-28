@@ -14,6 +14,7 @@ async function importAndThumbnail(
   paths: string[] | undefined,
   addAssets: (assets: MediaAsset[]) => void,
   updateAsset: (id: string, patch: Partial<MediaAsset>) => void,
+  onProxyJobStarted: (assetId: string) => void,
 ): Promise<void> {
   const imported = await window.api.media.import(paths);
   if (imported.length === 0) return;
@@ -31,6 +32,13 @@ async function importAndThumbnail(
         if (waveformPath) updateAsset(asset.id, { waveformPath });
       })
       .catch(() => {});
+    window.api.media
+      .generateProxy(asset)
+      .then((result) => {
+        if (result.proxyPath) updateAsset(asset.id, { proxyPath: result.proxyPath });
+        else if (result.jobId) onProxyJobStarted(asset.id);
+      })
+      .catch(() => {});
   }
 }
 
@@ -41,13 +49,38 @@ export function MediaBin(): JSX.Element {
   const updateAsset = useMediaBinStore((s) => s.updateAsset);
   const removeAsset = useMediaBinStore((s) => s.removeAsset);
   const selectAsset = useMediaBinStore((s) => s.selectAsset);
+  const pendingProxyAssetIds = useMediaBinStore((s) => s.pendingProxyAssetIds);
+  const markProxyPending = useMediaBinStore((s) => s.markProxyPending);
+  const clearProxyPending = useMediaBinStore((s) => s.clearProxyPending);
+
+  // This subscription is the single place that reacts to proxy jobs
+  // completing, regardless of which entry point started them (a fresh
+  // import right below, or projectIO.ts's regenerateProxies on project load).
+  useEffect(() => {
+    const unsubComplete = window.api.media.onProxyComplete((event) => {
+      clearProxyPending(event.assetId);
+      updateAsset(event.assetId, { proxyPath: event.proxyPath });
+    });
+    const unsubError = window.api.media.onProxyError((event) => {
+      clearProxyPending(event.assetId);
+      console.warn(`Proxy generation failed for asset ${event.assetId}:`, event.message);
+    });
+    return () => {
+      unsubComplete();
+      unsubError();
+    };
+  }, [updateAsset, clearProxyPending]);
+
+  function handleImport(paths: string[] | undefined): void {
+    void importAndThumbnail(paths, addAssets, updateAsset, markProxyPending);
+  }
 
   function handleDrop(e: React.DragEvent<HTMLDivElement>): void {
     e.preventDefault();
     const paths = Array.from(e.dataTransfer.files)
       .map((file) => (file as File & { path?: string }).path)
       .filter((p): p is string => Boolean(p));
-    if (paths.length > 0) void importAndThumbnail(paths, addAssets, updateAsset);
+    if (paths.length > 0) handleImport(paths);
   }
 
   return (
@@ -62,7 +95,7 @@ export function MediaBin(): JSX.Element {
         </span>
         <button
           className="px-2 py-1 rounded bg-neutral-700 hover:bg-neutral-600 text-xs"
-          onClick={() => void importAndThumbnail(undefined, addAssets, updateAsset)}
+          onClick={() => handleImport(undefined)}
         >
           Import
         </button>
@@ -79,6 +112,7 @@ export function MediaBin(): JSX.Element {
             key={asset.id}
             asset={asset}
             selected={asset.id === selectedAssetId}
+            proxyPending={pendingProxyAssetIds.has(asset.id)}
             onSelect={() => selectAsset(asset.id)}
             onRemove={() => removeAsset(asset.id)}
           />
@@ -91,11 +125,13 @@ export function MediaBin(): JSX.Element {
 function MediaBinItem({
   asset,
   selected,
+  proxyPending,
   onSelect,
   onRemove,
 }: {
   asset: MediaAsset;
   selected: boolean;
+  proxyPending: boolean;
   onSelect: () => void;
   onRemove: () => void;
 }): JSX.Element {
@@ -131,6 +167,8 @@ function MediaBinItem({
         <div className="text-[10px] text-neutral-500">
           {formatDuration(asset.duration)}
           {asset.resolution ? ` · ${asset.resolution.width}x${asset.resolution.height}` : ''}
+          {proxyPending && <span className="text-yellow-500"> · Generating proxy...</span>}
+          {!proxyPending && asset.proxyPath && <span className="text-green-500"> · Proxy</span>}
         </div>
       </div>
       <button

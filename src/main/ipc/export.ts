@@ -40,7 +40,8 @@ export function registerExportIpc(): void {
           const totalDuration = getExportDuration(project.tracks);
 
           const run = runExport(args, totalDuration, (progress) => {
-            win?.webContents.send('export:progress', {
+            if (!win || win.isDestroyed()) return;
+            win.webContents.send('export:progress', {
               jobId,
               percent: progress.percent,
               message: progress.speed ? `${progress.speed.toFixed(2)}x` : 'Encoding...',
@@ -49,10 +50,14 @@ export function registerExportIpc(): void {
           activeJobs.set(jobId, run);
           await run.promise;
           activeJobs.delete(jobId);
-          win?.webContents.send('export:complete', { jobId, outputPath: settings.outputPath });
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('export:complete', { jobId, outputPath: settings.outputPath });
+          }
         } catch (err) {
           activeJobs.delete(jobId);
-          win?.webContents.send('export:error', { jobId, message: (err as Error).message });
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('export:error', { jobId, message: (err as Error).message });
+          }
         }
       })();
 

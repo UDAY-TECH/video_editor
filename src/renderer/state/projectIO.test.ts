@@ -46,6 +46,7 @@ describe('buildProjectFile / applyProjectFile', () => {
         media: {
           generateThumbnail: vi.fn().mockResolvedValue(null),
           generateWaveform: vi.fn().mockResolvedValue(null),
+          generateProxy: vi.fn().mockResolvedValue({ jobId: null, proxyPath: null }),
         },
       },
     };
@@ -127,6 +128,7 @@ describe('loadProject', () => {
         media: {
           generateThumbnail: vi.fn().mockResolvedValue(null),
           generateWaveform: vi.fn().mockResolvedValue(null),
+          generateProxy: vi.fn().mockResolvedValue({ jobId: null, proxyPath: null }),
         },
       },
     };

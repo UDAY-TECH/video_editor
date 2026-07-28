@@ -1,9 +1,10 @@
 import { app, BrowserWindow, shell, protocol, ipcMain } from 'electron';
 import { join } from 'path';
 import { handleMediaRequest } from './mediaProtocol';
-import { registerMediaIpc } from './ipc/media';
+import { registerMediaIpc, cancelAllProxyJobs } from './ipc/media';
 import { registerProjectIpc } from './ipc/project';
 import { registerExportIpc, cancelAllExportJobs } from './ipc/export';
+import { getInitialWindowBounds, writeWindowStateFile } from './windowState';
 
 // Window ids that have already been confirmed for closing (either no unsaved
 // changes, or the user chose to discard them), so the 'close' guard below
@@ -26,8 +27,7 @@ protocol.registerSchemesAsPrivileged([
 
 function createMainWindow(): void {
   const mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    ...getInitialWindowBounds(),
     minWidth: 1024,
     minHeight: 640,
     show: false,
@@ -43,6 +43,21 @@ function createMainWindow(): void {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
+
+  // Debounced so dragging/resizing doesn't hammer disk I/O on every intermediate frame.
+  let saveBoundsTimeout: ReturnType<typeof setTimeout> | null = null;
+  function scheduleSaveBounds(): void {
+    if (saveBoundsTimeout) clearTimeout(saveBoundsTimeout);
+    saveBoundsTimeout = setTimeout(() => {
+      if (mainWindow.isDestroyed()) return;
+      // getBounds() while minimized/maximized reports the minimized/maximized
+      // size, not the restored size the user actually wants remembered.
+      if (mainWindow.isMinimized() || mainWindow.isMaximized()) return;
+      writeWindowStateFile(mainWindow.getBounds());
+    }, 500);
+  }
+  mainWindow.on('resize', scheduleSaveBounds);
+  mainWindow.on('move', scheduleSaveBounds);
 
   mainWindow.on('close', (event) => {
     if (confirmedCloseWindowIds.has(mainWindow.id)) return;
@@ -74,8 +89,9 @@ app.whenReady().then(() => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return;
     // The close is definitely proceeding past this point - stop any
-    // in-progress export now rather than orphaning its ffmpeg process.
+    // in-progress export/proxy job now rather than orphaning its ffmpeg process.
     cancelAllExportJobs();
+    cancelAllProxyJobs();
     confirmedCloseWindowIds.add(win.id);
     win.close();
   });

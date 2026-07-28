@@ -49,6 +49,35 @@ function regenerateWaveforms(assets: MediaAsset[]): void {
   }
 }
 
+// Deliberately doesn't skip assets that already have a proxyPath: that path
+// was only ever a cache hint, and the underlying file may since have been
+// deleted (e.g. userData/proxies cleared out-of-band). generateProxy always
+// re-checks the real file on disk (see main/ipc/media.ts) and returns the
+// cached path immediately when it's still there, so calling it
+// unconditionally costs an access() check, not a re-encode. A no-op for
+// assets below the 4K-oriented proxy threshold (generateProxy itself returns
+// { jobId: null, proxyPath: null } for those). Completion for jobs started
+// here arrives later via onProxyComplete (wired up in MediaBin.tsx, keyed by
+// assetId so it clears the pending flag regardless of which entry point -
+// this function or a fresh import - started the job).
+function regenerateProxies(assets: MediaAsset[]): void {
+  for (const asset of assets) {
+    if (asset.type !== 'video') continue;
+    window.api.media
+      .generateProxy(asset)
+      .then((result) => {
+        if (result.proxyPath) {
+          if (result.proxyPath !== asset.proxyPath) {
+            useMediaBinStore.getState().updateAsset(asset.id, { proxyPath: result.proxyPath });
+          }
+        } else if (result.jobId) {
+          useMediaBinStore.getState().markProxyPending(asset.id);
+        }
+      })
+      .catch(() => {});
+  }
+}
+
 export function applyProjectFile(project: ProjectFile, filePath: string): void {
   useMediaBinStore.getState().setAssets(project.mediaAssets);
   useTimelineStore.getState().loadTracks(project.tracks);
@@ -62,6 +91,7 @@ export function applyProjectFile(project: ProjectFile, filePath: string): void {
   });
   regenerateThumbnails(project.mediaAssets);
   regenerateWaveforms(project.mediaAssets);
+  regenerateProxies(project.mediaAssets);
 }
 
 export function resetToNewProject(): void {

@@ -3,6 +3,7 @@ import { useTimelineStore, findClip } from '../../state/timelineStore';
 import { useMediaBinStore } from '../../state/mediaBinStore';
 import { pxToTime, timeToPx, collectSnapPoints, snapTime, getTimelineEnd } from '../../engine/timelineMath';
 import { ClipBlock } from './ClipBlock';
+import { isTypingTarget } from '../../utils/keyboardTarget';
 import type { Clip } from '@shared/types';
 
 const RULER_HEIGHT = 24;
@@ -241,8 +242,7 @@ export function Timeline(): JSX.Element {
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent): void {
-      const target = e.target as HTMLElement | null;
-      if (target && ['INPUT', 'TEXTAREA'].includes(target.tagName)) return;
+      if (isTypingTarget(e.target)) return;
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -253,6 +253,16 @@ export function Timeline(): JSX.Element {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         redo();
+        return;
+      }
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        setZoom(zoomRef.current * 1.2);
+        return;
+      }
+      if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        setZoom(zoomRef.current / 1.2);
         return;
       }
       const selectedClipId = selectedClipIdRef.current;
@@ -267,7 +277,7 @@ export function Timeline(): JSX.Element {
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, splitClipAt, removeClip]);
+  }, [undo, redo, splitClipAt, removeClip, setZoom]);
 
   const contentSeconds = Math.max(MIN_CONTENT_SECONDS, getTimelineEnd(tracks) + CONTENT_PADDING_SECONDS);
   const contentWidth = timeToPx(contentSeconds, zoom);

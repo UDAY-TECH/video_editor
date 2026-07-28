@@ -9,6 +9,7 @@ import { computeEffectiveGain } from '../../engine/audioMix';
 import { buildCssFilterString } from '../../engine/colorCorrection';
 import { parseCubeLut, type ParsedLut } from '../../engine/lut';
 import { LutGlProcessor } from '../../engine/lutGl';
+import { isTypingTarget } from '../../utils/keyboardTarget';
 import type { MediaAsset } from '@shared/types';
 
 const TEXT_ANIM_DURATION = 0.5;
@@ -68,7 +69,7 @@ export function PreviewPlayer(): JSX.Element {
   isPlayingRef.current = isPlaying;
 
   const videoPoolRef = useRef<Map<string, HTMLVideoElement>>(new Map());
-  const videoSrcRef = useRef<Map<string, string>>(new Map());
+  const videoFallbackAppliedRef = useRef<Set<string>>(new Set());
   const imagePoolRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const imageSrcRef = useRef<Map<string, string>>(new Map());
   const audioPoolRef = useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -87,7 +88,15 @@ export function PreviewPlayer(): JSX.Element {
     draw(playheadRef.current);
   }
 
-  function getPooledVideo(clipId: string, src: string): HTMLVideoElement {
+  // The proxy-vs-original choice is frozen the moment a clip's pooled
+  // element is created: if a proxy finishes generating mid-session while the
+  // clip is already pooled against the original file, we deliberately don't
+  // swap el.src, since reassigning src forces a reload/black-flash (draw()
+  // clears the canvas to black every frame and skips undecoded layers). The
+  // element also falls back once to `fallbackSrc` (the original file) if the
+  // chosen src itself fails to load, e.g. a proxy whose cached file got
+  // deleted after the project recorded its path.
+  function getPooledVideo(clipId: string, primarySrc: string, fallbackSrc: string): HTMLVideoElement {
     let el = videoPoolRef.current.get(clipId);
     if (!el) {
       el = document.createElement('video');
@@ -95,11 +104,14 @@ export function PreviewPlayer(): JSX.Element {
       el.preload = 'auto';
       el.addEventListener('seeked', scheduleRedraw);
       el.addEventListener('loadeddata', scheduleRedraw);
+      const created = el;
+      created.addEventListener('error', () => {
+        if (primarySrc === fallbackSrc || videoFallbackAppliedRef.current.has(clipId)) return;
+        videoFallbackAppliedRef.current.add(clipId);
+        created.src = fallbackSrc;
+      });
+      created.src = primarySrc;
       videoPoolRef.current.set(clipId, el);
-    }
-    if (videoSrcRef.current.get(clipId) !== src) {
-      el.src = src;
-      videoSrcRef.current.set(clipId, src);
     }
     return el;
   }
@@ -214,7 +226,7 @@ export function PreviewPlayer(): JSX.Element {
       el?.removeAttribute('src');
       el?.load();
       videoPoolRef.current.delete(clipId);
-      videoSrcRef.current.delete(clipId);
+      videoFallbackAppliedRef.current.delete(clipId);
     }
     for (const clipId of [...imagePoolRef.current.keys()]) {
       if (currentClipIds.has(clipId)) continue;
@@ -427,7 +439,13 @@ export function PreviewPlayer(): JSX.Element {
         if (!img.complete || img.naturalWidth === 0) continue;
         drawLayer(ctx, img, layer, width, height);
       } else {
-        const video = getPooledVideo(layer.clip.id, toMediaUrl(asset.filePath));
+        // Scrubbing/preview only - export always reads the original full-res
+        // file (see main/ffmpeg/filterGraph.ts's buildClipInputs), never this proxy.
+        const video = getPooledVideo(
+          layer.clip.id,
+          toMediaUrl(asset.proxyPath ?? asset.filePath),
+          toMediaUrl(asset.filePath),
+        );
         try {
           video.currentTime = layer.sourceTime;
         } catch {
@@ -445,6 +463,43 @@ export function PreviewPlayer(): JSX.Element {
     draw(playheadTime);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playheadTime, tracks, assets, settings]);
+
+  // Uses refs (tracksRef/settingsRef/playheadRef) rather than effect
+  // dependencies so this listener is attached once and never torn down on
+  // every playhead tick during playback, matching the pattern used
+  // throughout this component.
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent): void {
+      if (isTypingTarget(e.target)) return;
+
+      const end = getTimelineEnd(tracksRef.current);
+      const fps = settingsRef.current.fps > 0 ? settingsRef.current.fps : 30;
+      const step = 1 / fps;
+
+      if (e.key === ' ') {
+        e.preventDefault();
+        setIsPlaying((prev) => !prev);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setIsPlaying(false);
+        setPlayhead(Math.max(0, Math.min(playheadRef.current - step, end)));
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setIsPlaying(false);
+        setPlayhead(Math.max(0, Math.min(playheadRef.current + step, end)));
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setIsPlaying(false);
+        setPlayhead(0);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        setIsPlaying(false);
+        setPlayhead(end);
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [setPlayhead]);
 
   useEffect(() => {
     if (!isPlaying) {
