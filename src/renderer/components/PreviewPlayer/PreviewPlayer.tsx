@@ -70,6 +70,16 @@ export function PreviewPlayer(): JSX.Element {
 
   const videoPoolRef = useRef<Map<string, HTMLVideoElement>>(new Map());
   const videoFallbackAppliedRef = useRef<Set<string>>(new Set());
+  // Pooled <video> elements are appended here (visually hidden, but part of
+  // the document) rather than left fully detached: Chromium's media pipeline
+  // can get stuck at readyState HAVE_METADATA and never actually buffer/
+  // decode frame data for a <video> that's never in the DOM and never
+  // .play()'d (this codebase always drives them via currentTime seeks only,
+  // for frame-accurate scrubbing) - a real, reproducible quirk, not a codec
+  // or protocol issue. Images/audio don't need this: <img> decodes fine
+  // detached, and the audio pool actually calls .play().
+  const hiddenMediaPoolRef = useRef<HTMLDivElement>(null);
+  const pendingReadyRetryRef = useRef<Set<string>>(new Set());
   const imagePoolRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const imageSrcRef = useRef<Map<string, string>>(new Map());
   const audioPoolRef = useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -102,8 +112,27 @@ export function PreviewPlayer(): JSX.Element {
       el = document.createElement('video');
       el.muted = true;
       el.preload = 'auto';
+      // Positioned off-screen rather than shrunk to a tiny CSS box: a small
+      // rendered size can make Chromium's decoder allocate a downscaled
+      // output surface (a power-saving optimization tied to the element's
+      // rendered box, not its intrinsic video size), which would make
+      // drawImage() paint a soft/blurry frame despite videoWidth/videoHeight
+      // still reporting the source's real resolution. Off-screen fixed
+      // positioning keeps the element at its natural decode size while still
+      // never being visible or affecting layout.
+      el.style.position = 'fixed';
+      el.style.top = '-10000px';
+      el.style.left = '-10000px';
+      el.style.pointerEvents = 'none';
       el.addEventListener('seeked', scheduleRedraw);
       el.addEventListener('loadeddata', scheduleRedraw);
+      // 'loadeddata' can fire before readyState actually reaches
+      // HAVE_CURRENT_DATA (2) in this Electron/Chromium build - draw()
+      // skips painting below that threshold, so without this listener a
+      // clip can finish buffering to a paintable state with nothing left to
+      // trigger the redraw that would actually show it (canvas stays black
+      // even once the video is fully ready).
+      el.addEventListener('canplay', scheduleRedraw);
       const created = el;
       created.addEventListener('error', () => {
         if (primarySrc === fallbackSrc || videoFallbackAppliedRef.current.has(clipId)) return;
@@ -111,6 +140,14 @@ export function PreviewPlayer(): JSX.Element {
         created.src = fallbackSrc;
       });
       created.src = primarySrc;
+      if (hiddenMediaPoolRef.current) {
+        hiddenMediaPoolRef.current.appendChild(el);
+      } else {
+        // Should be unreachable - the container mounts before any draw()
+        // call can run. Warn loudly rather than silently reintroducing the
+        // stuck-at-HAVE_METADATA bug this pooling exists to fix.
+        console.warn('[PreviewPlayer] hidden media pool container not mounted; pooled video will not decode');
+      }
       videoPoolRef.current.set(clipId, el);
     }
     return el;
@@ -222,11 +259,14 @@ export function PreviewPlayer(): JSX.Element {
       const el = videoPoolRef.current.get(clipId);
       el?.removeEventListener('seeked', scheduleRedraw);
       el?.removeEventListener('loadeddata', scheduleRedraw);
+      el?.removeEventListener('canplay', scheduleRedraw);
       el?.pause();
       el?.removeAttribute('src');
       el?.load();
+      el?.remove();
       videoPoolRef.current.delete(clipId);
       videoFallbackAppliedRef.current.delete(clipId);
+      pendingReadyRetryRef.current.delete(clipId);
     }
     for (const clipId of [...imagePoolRef.current.keys()]) {
       if (currentClipIds.has(clipId)) continue;
@@ -451,7 +491,22 @@ export function PreviewPlayer(): JSX.Element {
         } catch {
           // Not ready to seek yet - 'loadeddata' will trigger a redraw.
         }
-        if (video.readyState < 2) continue;
+        if (video.readyState < 2) {
+          // 'loadeddata'/'canplay' can fire before readyState actually
+          // crosses HAVE_CURRENT_DATA in this Electron/Chromium build, so
+          // relying on those events alone can leave the canvas permanently
+          // black even after the video finishes buffering. Back this with a
+          // self-sustaining rAF retry (guarded per-clip so it doesn't stack)
+          // that keeps re-checking every frame until it's actually paintable.
+          if (!pendingReadyRetryRef.current.has(layer.clip.id)) {
+            pendingReadyRetryRef.current.add(layer.clip.id);
+            requestAnimationFrame(() => {
+              pendingReadyRetryRef.current.delete(layer.clip.id);
+              scheduleRedraw();
+            });
+          }
+          continue;
+        }
         drawLayer(ctx, video, layer, width, height);
       }
     }
@@ -555,6 +610,10 @@ export function PreviewPlayer(): JSX.Element {
     <div className="flex h-full flex-col bg-black">
       <div className="flex-1 flex items-center justify-center overflow-hidden">
         <canvas ref={canvasRef} className="max-h-full max-w-full" />
+        {/* Pooled <video> elements are appended here (each positions itself
+            off-screen - see getPooledVideo) rather than left fully detached,
+            which pooled video playback depends on. */}
+        <div ref={hiddenMediaPoolRef} aria-hidden="true" />
       </div>
 
       <div className="h-12 border-t border-neutral-800 flex items-center px-3 text-xs text-neutral-400 gap-2 shrink-0">
